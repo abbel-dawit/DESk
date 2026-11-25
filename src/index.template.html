@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>DESk — files, scanner & passwords, on your device</title>
+<meta name="description" content="DESk sorts your files automatically, scans documents into clean PDFs, keeps your passwords encrypted and syncs your devices with a QR code. Free, private, no account.">
+<meta name="theme-color" content="#06102e">
+<meta name="application-name" content="DESk">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DESk">
+<meta property="og:title" content="DESk">
+<meta property="og:description" content="Files sorted, documents scanned, passwords locked — private, on your device.">
+<meta property="og:image" content="icons/icon-512.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<script>
+/* Site settings — change syncRelay to your own ntfy server if you like (see README) */
+window.DESK_CONFIG = Object.assign({ syncRelay: 'https://ntfy.sh', relayMaxMB: 15 }, window.DESK_CONFIG || {});
+</script>
+<style>
+/* Splash screen — styled inline so it paints before anything else loads */
+html,body{background:#06102e;margin:0}
+#splash{position:fixed;inset:0;z-index:999;display:grid;place-items:center;background:radial-gradient(900px 600px at 50% 40%,#123a9e 0,#06102e 70%);overflow:hidden;transition:opacity .6s ease,transform .6s ease,visibility 0s .6s}
+#splash.out{opacity:0;transform:scale(1.06);visibility:hidden}
+#splash .rings{position:absolute;width:min(78vmin,440px);aspect-ratio:1}
+#splash .rings i{position:absolute;inset:0;border-radius:50%;border:2px solid rgba(90,140,255,.5);opacity:0;animation:spr 2.6s cubic-bezier(.2,.7,.3,1) infinite}
+#splash .rings i:nth-child(2){animation-delay:.85s}#splash .rings i:nth-child(3){animation-delay:1.7s}
+#splash .core{position:relative;display:grid;justify-items:center;gap:20px;font-family:Manrope,system-ui,-apple-system,"Segoe UI",sans-serif}
+#splash .tile{width:min(32vmin,150px);aspect-ratio:1;border-radius:26%;background:linear-gradient(145deg,#3b7bff,#1A5CFF 55%,#1446d6);display:grid;place-items:center;box-shadow:0 0 0 3px rgba(255,255,255,.18),0 24px 60px rgba(26,92,255,.55);animation:spb .8s cubic-bezier(.2,1.3,.4,1) both}
+#splash .tile svg{width:62%;height:62%;overflow:visible}
+#splash .clip{stroke-dasharray:90;stroke-dashoffset:90;animation:spd 1.1s .35s ease-out forwards}
+#splash .word{color:#fff;font-weight:800;font-size:clamp(34px,8vmin,52px);letter-spacing:-.02em;animation:spw .6s .5s both}
+#splash .bar{width:min(46vmin,200px);height:4px;border-radius:4px;background:rgba(255,255,255,.12);overflow:hidden;animation:spw .6s .6s both}
+#splash .bar i{display:block;height:100%;width:40%;border-radius:4px;background:#fff;box-shadow:0 0 12px #7aa7ff;animation:spl 1.1s ease-in-out infinite}
+#splash .sub{min-height:1.4em;color:#c9d6f5;font-weight:600;font-size:15px;text-align:center;padding:0 20px}
+@keyframes spr{0%{transform:scale(.3);opacity:.9}100%{transform:scale(1.5);opacity:0}}
+@keyframes spb{0%{transform:scale(.4) rotate(-10deg);opacity:0}100%{transform:none;opacity:1}}
+@keyframes spd{to{stroke-dashoffset:0}}
+@keyframes spw{0%{transform:translateY(12px);opacity:0}100%{transform:none;opacity:1}}
+@keyframes spl{0%{transform:translateX(-110%)}100%{transform:translateX(260%)}}
+@media (prefers-reduced-motion:reduce){#splash *{animation:none!important}#splash .clip{stroke-dashoffset:0}}
+</style>
+<link rel="stylesheet" href="css/app.css?v=__CSSV__">
+</head>
+<body>
+<div id="splash" aria-hidden="true"><div class="rings"><i></i><i></i><i></i></div>
+ <div class="core"><div class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path class="clip" d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></div>
+ <div class="word">DESk</div><div class="bar"><i></i></div><div class="sub" id="spSub">&nbsp;</div></div></div>
+<script>(function(){var L=["Sorting your trays…","Sharpening the scanner…","Locking the key box…","Straightening the papers…","Finding your files…","Polishing the paperclip…"],i=Math.floor(Math.random()*L.length),el=document.getElementById("spSub");function s(){if(!el||!document.getElementById("splash"))return;el.textContent=L[i++%L.length];setTimeout(s,1400)}s()})();</script>
+<div id="landing" hidden></div>
+<div id="onboarding" hidden></div>
+
+<div class="app" id="app" hidden>
+ <aside class="side" id="side"></aside>
+ <main>
+  <header class="top">
+   <button class="mlogo" data-act="logo" aria-label="DESk home"></button>
+   <label class="search"><span id="sIc"></span><input id="q" type="search" placeholder="Search files, tags, folders…" autocomplete="off" aria-label="Search"><kbd>/</kbd></label>
+   <div class="acts" id="topActs"></div>
+  </header>
+  <div id="view"></div>
+ </main>
+ <nav class="tabs" id="tabs"></nav>
+</div>
+<div id="modal-root"></div>
+<div id="toasts" role="status" aria-live="polite"></div>
+<div id="upq"></div>
+<input type="file" id="fileIn" multiple hidden>
+<input type="file" id="dirIn" webkitdirectory multiple hidden>
+<input type="file" id="camIn" accept="image/*" capture="environment" hidden>
+<input type="file" id="imgIn" accept="image/*" multiple hidden>
+<input type="file" id="hidIn" multiple hidden>
+<input type="file" id="anyIn" hidden>
+<script src="js/desk.js?v=__JSV__" defer></script>
+</body>
+</html>
