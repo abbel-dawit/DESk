@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>DESk — files, scanner & passwords, on your device</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<title>DESk | Your File Tool</title>
 <meta name="description" content="DESk sorts your files automatically, scans documents into clean PDFs, keeps your passwords encrypted and syncs your devices with a QR code. Free, private, no account.">
 <meta name="theme-color" content="#06102e">
 <meta name="application-name" content="DESk">
@@ -11,7 +11,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DESk">
-<meta property="og:title" content="DESk">
+<meta property="og:title" content="DESk | Your File Tool">
 <meta property="og:description" content="Files sorted, documents scanned, passwords locked — private, on your device.">
 <meta property="og:image" content="icons/icon-512.png">
 <link rel="manifest" href="manifest.webmanifest">
@@ -22,6 +22,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<script>try{var t=localStorage.getItem('desk-theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
 <script>
 /* Site settings — change syncRelay to your own ntfy server if you like (see README) */
 window.DESK_CONFIG = Object.assign({ syncRelay: 'https://ntfy.sh', relayMaxMB: 15 }, window.DESK_CONFIG || {});

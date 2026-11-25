@@ -1,22 +1,65 @@
 {
-  "name": "DESk",
+  "name": "DESk | Your File Tool",
   "short_name": "DESk",
-  "description": "Files sorted automatically, documents scanned, passwords encrypted — private, on your device.",
+  "description": "Files sorted automatically, documents scanned, passwords encrypted \u2014 private, on your device.",
   "id": "./",
   "start_url": "./#/home",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#06102e",
-  "theme_color": "#06102e",
-  "categories": ["productivity", "utilities"],
+  "theme_color": "#1A5CFF",
+  "categories": [
+    "productivity",
+    "utilities"
+  ],
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ],
   "shortcuts": [
-    { "name": "Scan a document", "url": "./#/scan", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Passwords", "url": "./#/vault", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
-  ]
+    {
+      "name": "Scan a document",
+      "url": "./#/scan",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Passwords",
+      "url": "./#/vault",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  }
 }

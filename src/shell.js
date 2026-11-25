@@ -5,11 +5,13 @@ VIEWS.prefs = () => `<div class="sect" style="margin-top:6px"><h1>Settings</h1><
    <div class="grow"><label class="fld" style="margin:0"><span>Your name</span><div class="row" style="flex-wrap:nowrap"><input id="meName" value="${esc(S.profile ? S.profile.username : '')}" maxlength="30"><button class="btn" data-act="saveMe">Save</button></div></label></div></div>
    <p class="small muted">Shown on this device${linked() ? ' and your linked devices' : ''}. Tap the picture to change it.${S.profile && S.profile.picture ? ' <a href="#" data-act="clearPic">Remove picture</a>' : ''}</p></div>
   <div class="card"><h3>This device</h3><label class="fld"><span>Device name</span><div class="row" style="flex-wrap:nowrap"><input value="${esc(S.deviceName)}" id="devName" maxlength="40"><button class="btn" data-act="saveDevName">Save</button></div></label>
-   <label class="sw"><input type="checkbox" data-set="skipDupes" ${setting('skipDupes') ? 'checked' : ''}>Skip duplicate uploads automatically</label>
-   <label class="fld" style="margin-top:10px"><span>Empty Trash automatically after</span><select data-set="autoEmptyDays">${[7, 14, 30, 60, 90, 0].map(n => `<option value="${n}" ${setting('autoEmptyDays') == n ? 'selected' : ''}>${n ? n + ' days' : 'Never'}</option>`).join('')}</select></label></div>
+   ${setRow('copy', 'Skip duplicates', `<label class="sw" aria-label="Skip duplicates"><input type="checkbox" data-set="skipDupes" ${setting('skipDupes') ? 'checked' : ''}></label>`, 'dupInfo')}
+   <label class="fld" style="margin-top:12px"><span>Empty Trash automatically after</span><select data-set="autoEmptyDays">${[7, 14, 30, 60, 90, 0].map(n => `<option value="${n}" ${setting('autoEmptyDays') == n ? 'selected' : ''}>${n ? n + ' days' : 'Never'}</option>`).join('')}</select></label></div>
+  <div class="card"><h3>Appearance</h3><div class="seg" role="radiogroup" aria-label="Theme">${[['system', 'System', 'monitor'], ['light', 'Light', 'sun'], ['dark', 'Dark', 'moon']].map(([k, l, i]) => `<button role="radio" aria-checked="${themePref() === k}" class="${themePref() === k ? 'on' : ''}" data-act="theme" data-v="${k}">${ic(i, 17)}${l}</button>`).join('')}</div><p class="small muted" style="margin-top:10px">${themePref() === 'system' ? 'Follows your device’s light or dark setting.' : 'Always ' + themePref() + ' on this device.'}</p></div>
   <div class="card"><h3>Privacy & locks</h3>
    <label class="fld"><span>Lock vault and Hidden after</span><select data-set="lockMin">${[1, 2, 5, 10, 15, 30, 60].map(n => `<option value="${n}" ${setting('lockMin') == n ? 'selected' : ''}>${n} minute${n > 1 ? 's' : ''} idle</option>`).join('')}</select></label>
-   <label class="sw"><input type="checkbox" data-set="stealth" ${setting('stealth') ? 'checked' : ''}>Stealth mode — remove Hidden from menus (open it by tapping the DESk logo 5 times)</label>
+   ${setRow('eyeoff', 'Stealth mode', `<label class="sw" aria-label="Stealth mode"><input type="checkbox" data-set="stealth" ${setting('stealth') ? 'checked' : ''}></label>`, 'stealthInfo')}
+   <p class="small muted" style="margin-top:8px">${ic('lock', 14, 'style="display:inline;vertical-align:-2px"')} Vault and Hidden also lock the moment you leave DESk.</p>
    <div class="row" style="margin-top:12px"><button class="btn sm" data-act="lockAll">${ic('lock', 16)}Lock everything now</button></div></div>
   ${drivesCardHTML()}
   <div class="card"><h3>Sync your devices</h3><p class="small muted" style="margin-bottom:12px">${linked() ? `Linked with ${listDevices().length - 1} other device${listDevices().length === 2 ? '' : 's'}.` : 'Link your phone and computer with a QR code — no account.'}</p><button class="btn sm pri" data-act="nav" data-v="devices">${ic('devices', 16)}Open Devices</button></div>
@@ -19,11 +21,20 @@ VIEWS.prefs = () => `<div class="sect" style="margin-top:6px"><h1>Settings</h1><
   <div class="card"><h3>About DESk</h3><div class="row" style="flex-wrap:nowrap;gap:14px">${LOGO(52)}<div><b>DESk ${APP_VERSION}</b><p class="small muted">File manager · document scanner · password vault. Works offline; your files never leave your devices unless you sync or share them, and then only encrypted.</p></div></div>
    <div class="row" style="margin-top:12px"><button class="btn sm" data-act="tour">${ic('info', 16)}Take the tour</button><button class="btn sm ghost" data-act="showTerms">Privacy & Terms</button>${isStandalone() ? '' : `<button class="btn sm pri" data-act="install">${ic('download', 16)}Add to home screen</button>`}</div>
    <p class="small muted" style="margin-top:12px">${MEM ? 'This browser blocks offline storage — data is kept only until you close the tab.' : 'Offline storage ready.'}</p></div></div>`;
+function setRow(icon, label, control, info) { return `<div class="setrow"><span class="ib">${ic(icon, 18)}</span><b>${label}</b>${info ? `<button class="btn icon sm ghost info" data-act="${info}" aria-label="About ${label}" title="About ${label}">${ic('info', 18)}</button>` : ''}<span class="grow"></span>${control}</div>` }
+const themePref = () => { try { return localStorage.getItem('desk-theme') || 'system' } catch { return 'system' } };
+function applyTheme(v) { const r = document.documentElement; if (v === 'light' || v === 'dark') r.dataset.theme = v; else delete r.dataset.theme; setThemeColor() }
+function setThemeColor() { const m = document.querySelector('meta[name=theme-color]'); if (!m) return; requestAnimationFrame(() => { m.content = document.body.classList.contains('on-landing') ? '#06102e' : getComputedStyle(document.body).backgroundColor || '#f3f5fb' }) }
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { setThemeColor(); renderIf('insights') });
+function infoModal(title, html) { modal(`<div class="mhead"><span class="ib" style="width:40px;height:40px;border-radius:12px;background:var(--bsoft);color:var(--blue2);display:grid;place-items:center">${ic('info', 20)}</span><h3>${title}</h3><button class="btn icon ghost" data-close aria-label="Close">${ic('x')}</button></div><div class="legal">${html}</div><div class="row end" style="margin-top:14px"><button class="btn pri" data-close>Got it</button></div>`, { cls: 'mid' }) }
 function avatarHTML(sz = 20) { const p = S.profile; if (p && safeThumb(p.picture)) return `<img src="${p.picture}" alt="">`; const ch = p && p.username ? p.username.trim()[0].toUpperCase() : ''; return ch ? `<b style="font-size:${sz * .8}px">${esc(ch)}</b>` : ic('id', sz) }
 Object.assign(ACT, {
  saveMe: async () => { const v = $('#meName').value.trim().slice(0, 30); if (!v) return; S.profile = { ...S.profile, username: v, updatedAt: Date.now() }; await kvSet('profile', S.profile); syncSoon(); toast('Saved'); render() },
  clearPic: async (d, el, e) => { e.preventDefault(); S.profile = { ...S.profile, picture: '', updatedAt: Date.now() }; await kvSet('profile', S.profile); syncSoon(); render() },
  tour: () => { location.hash = '#/about'; showLanding() },
+ theme: d => { try { d.v === 'system' ? localStorage.removeItem('desk-theme') : localStorage.setItem('desk-theme', d.v) } catch { } applyTheme(d.v); render() },
+ stealthInfo: () => infoModal('Stealth mode', '<p>Stealth mode removes <b>Hidden</b> from the menus, the Home screen and the More menu, so someone glancing at your screen won’t know it exists.</p><h4>How to open Hidden</h4><p>Tap the <b>DESk logo 5 times quickly</b> — top-left on a computer, or in the top bar on a phone. You’ll still need your PIN or password.</p><h4>Good to know</h4><p>Your hidden files stay encrypted whether stealth mode is on or off, and they never sync to other devices.</p>'),
+ dupInfo: () => infoModal('Skip duplicates', '<p>DESk fingerprints every file you add. When this is on, a file whose contents exactly match one you already have is skipped — even if it has a different name.</p><p>Turn it off if you want to keep intentional copies. You can always find duplicates later in <b>Clean up</b>.</p>'),
  install: () => installApp()
 });
 Object.assign(ACT, {
@@ -154,7 +165,14 @@ window.addEventListener('drop', async e => {
 document.addEventListener('paste', e => { if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return; const f = [...(e.clipboardData && e.clipboardData.files || [])]; if (f.length) { e.preventDefault(); ingest(f.map(x => x.name && x.name !== 'image.png' ? x : new File([x], `Pasted ${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.${extOf(x.type.replace('/', '.')) || 'png'}`, { type: x.type }))) } });
 ['pointerdown', 'touchstart', 'wheel'].forEach(ev => document.addEventListener(ev, () => { S.lastAct = Date.now() }, { passive: true }));
 let hiddenAt = 0;
-document.addEventListener('visibilitychange', () => { if (document.hidden) hiddenAt = Date.now(); else if (hiddenAt && Date.now() - hiddenAt > setting('lockMin') * 60000) autoLock() });
+// Vault & Hidden lock the moment you leave the tab or app (not while a file picker or camera you opened is showing)
+let pickerUntil = 0, lockedOnLeave = false;
+document.addEventListener('click', e => { if (e.target && e.target.type === 'file') pickerUntil = Date.now() + 120000 }, true);
+document.addEventListener('change', e => { if (e.target && e.target.type === 'file') setTimeout(() => { pickerUntil = 0 }, 1500) }, true);
+window.addEventListener('focus', () => { if (pickerUntil) setTimeout(() => { pickerUntil = 0 }, 1500) });
+function lockOnLeave() { if (Date.now() < pickerUntil || (SC && SC.m)) return; if (S.vault || S.hiddenDK) { if (S.vault) lockVault(); if (S.hiddenDK) lockHidden(); lockedOnLeave = true } }
+document.addEventListener('visibilitychange', () => { if (document.hidden) { hiddenAt = Date.now(); lockOnLeave() } else { if (lockedOnLeave) { lockedOnLeave = false; toast('Vault and Hidden locked while you were away') } } });
+window.addEventListener('pagehide', lockOnLeave);
 function autoLock() { const had = S.vault || S.hiddenDK; if (S.vault) lockVault(); if (S.hiddenDK) lockHidden(); if (had) toast('Locked after inactivity') }
 setInterval(() => { if ((S.vault || S.hiddenDK) && Date.now() - S.lastAct > setting('lockMin') * 60000) autoLock() }, 15000);
 window.addEventListener('hashchange', () => handleRoute());
@@ -169,6 +187,7 @@ function handleRoute() {
  else if (!r && $('#app').hidden === false && S.view !== 'home') go('home');
 }
 function showApp() {
+ setTimeout(() => { maybeInstallBar(); setThemeColor() }, 1200);
  $('#landing').hidden = true; $('#onboarding').hidden = true; document.body.classList.remove('on-landing'); $('#app').hidden = false;
  if (S.view === 'share' || !VIEWS[S.view]) S.view = 'home';
  render(); hideSplash();
@@ -181,6 +200,7 @@ async function autoEmptyTrash() {
 let installEvt = null;
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 async function installApp() {
+ hideInstallBar();
  if (installEvt) { installEvt.prompt(); try { const c = await installEvt.userChoice; if (c && c.outcome === 'accepted') toast('DESk is being added to your home screen') } catch { } installEvt = null; renderSoon(); return }
  const ua = navigator.userAgent, ios = /iPhone|iPad|iPod/.test(ua) || (/Mac/.test(ua) && navigator.maxTouchPoints > 1), android = /Android/.test(ua), safari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|Chrome/.test(ua);
  const shareIc = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-3px"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
@@ -190,8 +210,21 @@ async function installApp() {
  modal(`<div style="text-align:center;display:grid;gap:12px;justify-items:center"><img src="icons/icon-192.png" width="84" height="84" alt="" style="border-radius:20px;box-shadow:0 10px 30px rgba(26,92,255,.35)"><h3 style="margin:0">Add DESk to your home screen</h3><p class="muted small">It opens full-screen, works offline and keeps your files on this device.</p></div>
   <ol class="steps">${steps}</ol><div class="row end" style="margin-top:12px"><button class="btn pri" data-close>Got it</button></div>`, { cls: 'mid' });
 }
-window.addEventListener('appinstalled', () => { installEvt = null; toast('DESk was added to your home screen'); renderSoon() });
-window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; renderIf('prefs') });
+window.addEventListener('appinstalled', () => { installEvt = null; hideInstallBar(); toast('DESk was added to your home screen'); renderSoon() });
+// One-tap install bar: uses the browser's own install prompt where available (Chrome, Edge, Samsung Internet, Android);
+// iPhone/iPad Safari has no install API, so the bar opens the 3-step guide instead.
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Mac/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+function maybeInstallBar() {
+ if (isStandalone() || !ONLINE_APP() || $('#app').hidden || !(installEvt || isIOS())) return;
+ try { if (Date.now() - (+localStorage.getItem('desk-inst-later') || 0) < 5 * 864e5) return } catch { }
+ let bar = $('#installBar'); if (bar) return;
+ bar = document.createElement('div'); bar.id = 'installBar'; bar.className = 'instbar'; bar.setAttribute('role', 'dialog'); bar.setAttribute('aria-label', 'Install DESk');
+ bar.innerHTML = `<img src="icons/icon-192.png" alt="" width="44" height="44"><div class="grow"><b>Install DESk</b><span>${installEvt ? 'One tap — opens like an app, works offline' : 'Add it to your home screen in 3 taps'}</span></div><button class="btn pri sm" data-act="install">${installEvt ? 'Install' : 'Show me'}</button><button class="btn icon sm ghost" data-act="instLater" aria-label="Not now">${ic('x', 18)}</button>`;
+ document.body.appendChild(bar); document.body.classList.add('has-ibar');
+}
+function hideInstallBar() { const b = document.getElementById('installBar'); if (b) b.remove(); document.body.classList.remove('has-ibar') }
+ACT.instLater = () => { try { localStorage.setItem('desk-inst-later', Date.now()) } catch { } hideInstallBar() };
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; renderIf('prefs'); renderIf('home'); maybeInstallBar() });
 async function init() {
  $('#sIc').innerHTML = ic('search', 18);
  $('.mlogo').innerHTML = LOGO(36);

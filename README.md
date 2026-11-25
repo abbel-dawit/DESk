@@ -17,6 +17,8 @@ You can double-click `index.html` to try it on your computer, but sync, share li
 ## How it works
 
 - **First visit**: an immersive landing page (also at `#/about`), then a one-tap welcome — a name, an optional photo and accepting the terms. No email, no password. An existing user can pick *I use DESk on another device* or *Restore from a backup file*.
+- **Appearance**: *Settings → Appearance* — System (default), Light or Dark, remembered per device.
+- **Locks**: the password vault and Hidden lock the moment you leave the tab or app, and after the idle time you choose.
 - **Everything local**: files, scans, hidden items, the vault and settings live in the browser's IndexedDB. *Settings → Erase this device* wipes it.
 - **Sync your devices (no account)** — the same model as BAZINGA!: *Devices → Link a device* shows a QR code, a link and an 8-character short code (works once for 15 minutes; short link `…/#/c/K7M2Q9XA`). Scan / open / type it on another phone, computer or browser and they stay in sync. Rename, pause or remove any device; *Stop syncing this device*; *Turn off sync everywhere*.
 - **Share links**: any file up to 15 MB becomes a short encrypted link + QR code (`…/#/s/<id>/<key>`). The key is only in the part after `#`, which browsers never send to a server.
@@ -32,6 +34,8 @@ You can double-click `index.html` to try it on your computer, but sync, share li
 This uses the browser's folder access, available in **Chrome, Edge and Opera on computers and Chromebooks**. Phones and other browsers don't allow apps to keep a drive linked, so there *Save to drive* opens the system share/save sheet, where you pick the SD card or USB drive (Android: Files › SD card; iPhone/iPad: Save to Files › your drive). DESk shows these steps on the device.
 
 ## Add to home screen
+
+- **One-tap install**: on Chrome, Edge, Samsung Internet and Android, DESk shows an *Install DESk* bar (and buttons on the landing page, Home and Settings). One tap opens the browser's install dialog — browsers always ask you to confirm, so that's as automatic as the web allows. iPhone/iPad Safari has no install API, so the button shows the 3 Share → Add to Home Screen steps.
 
 The manifest, icons (192, 512, maskable, Apple touch icon) and offline service worker are included, so DESk installs with its blue paperclip icon and opens full-screen:
 - **Android / Chrome / Edge**: DESk shows an *Install* / *Add to home screen* button (landing page, Home and Settings) that opens the browser's install prompt.

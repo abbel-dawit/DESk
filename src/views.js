@@ -63,7 +63,7 @@ VIEWS.insights = () => {
  const tr = S.files.filter(f => f.trashed), big = L.slice().sort((a, b) => b.size - a.size).slice(0, 6);
  const exts = {}; L.forEach(f => { const e = extOf(f.name) || 'none'; exts[e] = (exts[e] || 0) + 1 });
  const feat = [['Live camera', !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)], ['QR detection', true], ['Folder cleaning', 'showDirectoryPicker' in window], ['Native share', !!navigator.share], ['Encryption', !!(crypto && crypto.subtle)], ['Offline storage', !MEM], ['Device sync', syncAvailable()], ['Works offline', 'serviceWorker' in navigator]];
- return `<div class="sect" style="margin-top:6px"><div><h1>Device insights</h1><p class="muted">Live readings from ${esc(S.deviceName)} · updates every 2 seconds</p></div><button class="btn" data-act="persist">${ic('shield', 18)}Protect storage</button></div>
+ return `<div class="sect" style="margin-top:6px"><div><h1>Device insights</h1><p class="muted livep"><span class="live" aria-label="Live"><i></i>Live</span>Readings from ${esc(S.deviceName)} · updates every 2 seconds</p></div><button class="btn" data-act="persist">${ic('shield', 18)}Protect storage</button></div>
  <div id="live">${liveHTML()}</div>
  <div class="grid g2" style="margin-top:16px">
   <div class="card"><h3>Content by type</h3><div id="stEst" class="small muted" style="margin:-4px 0 10px">${L.length} items · ${fmtB(tot === 1 ? 0 : tot)}</div>

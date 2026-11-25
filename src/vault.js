@@ -217,7 +217,7 @@ Object.assign(ACT, {
    <button class="btn wrap" data-act="vExportCsv">${ic('warn', 18)}Export as plain CSV</button>
    <button class="btn wrap" data-act="vChange">${ic('key', 18)}Change master password</button>
    <label class="sw" style="padding:4px 2px"><input type="checkbox" data-set="vaultSync" ${setting('vaultSync') ? 'checked' : ''}>Sync the encrypted vault to my linked devices</label>
-   <label class="fld" style="margin-top:6px"><span>Auto-lock vault and Hidden after</span><select data-set="lockMin">${[1, 2, 5, 10, 15, 30, 60].map(n => `<option value="${n}" ${setting('lockMin') == n ? 'selected' : ''}>${n} minute${n > 1 ? 's' : ''} idle</option>`).join('')}</select></label>
+   <label class="fld" style="margin-top:6px"><span>Also lock vault and Hidden after (they always lock when you leave DESk)</span><select data-set="lockMin">${[1, 2, 5, 10, 15, 30, 60].map(n => `<option value="${n}" ${setting('lockMin') == n ? 'selected' : ''}>${n} minute${n > 1 ? 's' : ''} idle</option>`).join('')}</select></label>
    <button class="btn danger wrap" data-act="vReset">${ic('trash', 18)}Erase vault on this device</button></div>
    <div class="row end" style="margin-top:14px"><button class="btn ghost" data-close>Done</button></div>`);
  },
