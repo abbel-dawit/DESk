@@ -284,80 +284,124 @@ async function addImagePages(files) {
  if (missed) toast(missed === 1 ? 'Couldn’t find the page edges on one photo — adjust the corners with Crop' : `${missed} photos need their corners adjusted with Crop`);
  stopCamera(); showReview();
 }
-/* --- review & edit --- */
+/* --- review & edit: the page is always shown whole, fitted to the space --- */
 function showReview() {
  if (!SC) return;
  stopCamera(); SC.video = null; SC.cropping = false;
  if (!SC.pages.length) return showCapture();
  if (!SC.kind) SC.kind = guessKind(SC.pages[0]);
  if (!SC.name) SC.name = defaultScanName(SC.kind);
- const b = $('#scBody', SC.m), p = SC.pages[SC.cur];
- b.innerHTML = `<div class="scbar topb"><button class="btn icon" data-act="scClose" aria-label="Close">${ic('x')}</button><b>${SC.editingId ? 'Edit' : 'Review'} · ${SC.cur + 1}/${SC.pages.length}</b>
+ SC.cur = clamp(SC.cur, 0, SC.pages.length - 1);
+ const b = $('#scBody', SC.m), p = SC.pages[SC.cur], n = SC.pages.length;
+ const tool = (act, icon, label, dis = false) => `<button class="rtool" data-act="${act}" ${dis ? 'disabled' : ''}>${ic(icon, 22)}<span>${label}</span></button>`;
+ b.innerHTML = `<div class="scbar topb"><button class="btn icon" data-act="scClose" aria-label="Close">${ic('x')}</button><b>${SC.editingId ? 'Edit scan' : 'Review'} · page ${SC.cur + 1} of ${n}</b>
    <button class="btn pri" data-act="scSave">${ic('check', 18)}Save</button></div>
-  <div class="rev"><div class="revmain" id="rvMain"></div>
+  <div class="rev">
+   <div class="revmain" id="rvMain"><div class="rvpage" id="rvPage"></div>
+    ${n > 1 ? `<button class="rvnav l" data-act="scPrev" aria-label="Previous page" ${SC.cur ? '' : 'disabled'}>${ic('back', 22)}</button><button class="rvnav r" data-act="scNext" aria-label="Next page" ${SC.cur < n - 1 ? '' : 'disabled'}>${ic('chev', 22)}</button>` : ''}
+    ${p.detected ? '' : `<button class="rvwarn" data-act="scCrop">${ic('warn', 16)}Page edges not found — tap to adjust</button>`}</div>
    <div class="revside">
-    <label for="scName">Name</label><input id="scName" value="${esc(SC.name)}" data-in="scName">
-    <label for="scKind">Type — decides the folder</label><select id="scKind" data-in="scKind" style="background:#141a2a;border-color:#263049;color:#fff">${KINDS.map(k => `<option ${k === SC.kind ? 'selected' : ''}>${k}</option>`).join('')}</select>
-    <label>Clean-up</label><div class="row" style="gap:6px">${FILTERS.map(([k, l]) => `<button class="chip ${p.filter === k ? 'on' : ''}" data-act="scFilter" data-f="${k}">${l}</button>`).join('')}</div>
-    <label>Page</label><div class="row" style="gap:6px">
-     <button class="btn sm" data-act="scCrop">${ic('crop', 16)}Crop</button><button class="btn sm" data-act="scRot">${ic('rotate', 16)}Rotate</button>
-     <button class="btn sm icon" data-act="scLeft" aria-label="Move page earlier" ${SC.cur ? '' : 'disabled'}>${ic('left', 16)}</button><button class="btn sm icon" data-act="scRight" aria-label="Move page later" ${SC.cur < SC.pages.length - 1 ? '' : 'disabled'}>${ic('right', 16)}</button>
-     <button class="btn sm icon" data-act="scDelPage" aria-label="Delete page">${ic('trash', 16)}</button></div>
-    <label>Save as</label><div class="row" style="gap:6px"><button class="chip ${SC.fmt === 'pdf' ? 'on' : ''}" data-act="scFmt" data-f="pdf">One PDF</button><button class="chip ${SC.fmt === 'jpg' ? 'on' : ''}" data-act="scFmt" data-f="jpg">Images (JPG)</button></div>
-    <button class="btn" data-act="scAdd">${ic('plus', 18)}Add pages</button>
-    <p class="small" style="color:#8792ab">${p.detected ? 'Edges found automatically.' : 'Edges not found — use Crop to set the corners.'} ${p.w}×${p.h}px</p>
+    <div class="rtools">${tool('scCrop', 'crop', 'Crop')}${tool('scRot', 'rotate', 'Rotate')}${tool('scLeft', 'left', 'Earlier', !SC.cur)}${tool('scRight', 'right', 'Later', SC.cur >= n - 1)}${tool('scDelPage', 'trash', 'Delete')}${tool('scAdd', 'plus', 'Add')}</div>
+    <div class="rfilters" role="group" aria-label="Clean-up">${FILTERS.map(([k, l]) => `<button class="chip ${p.filter === k ? 'on' : ''}" data-act="scFilter" data-f="${k}">${l}</button>`).join('')}</div>
+    <p class="small rinfo">${p.w}×${p.h}px · ${FILTERS.find(f => f[0] === p.filter)[1]} clean-up</p>
    </div></div>
   <div class="pthumbs">${SC.pages.map((pg, i) => `<button class="${i === SC.cur ? 'on' : ''}" data-act="scPick" data-i="${i}" aria-label="Page ${i + 1}"><img src="${pg.thumb}" alt=""><span>${i + 1}</span></button>`).join('')}
-   <button class="btn" data-act="scAdd" style="height:80px;flex:none">${ic('plus', 20)}</button></div>`;
+   <button class="padd" data-act="scAdd" aria-label="Add pages">${ic('plus', 22)}</button></div>`;
  drawReviewPage();
+ const t = SC.m.querySelector('.pthumbs .on'); t && t.scrollIntoView({ block: 'nearest', inline: 'center' });
 }
 function drawReviewPage() {
- const host = $('#rvMain', SC.m), p = SC.pages[SC.cur]; if (!host || !p) return;
- host.innerHTML = '<span style="color:#8792ab">Processing…</span>';
+ const host = $('#rvPage', SC.m), p = SC.pages[SC.cur]; if (!host || !p) return;
  const im = new Image(); im.alt = 'Scanned page ' + (SC.cur + 1);
- im.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;box-shadow:0 10px 40px rgba(0,0,0,.6);background:#fff';
  const u = URL.createObjectURL(p.out); im.onload = () => setTimeout(() => URL.revokeObjectURL(u), 500); im.src = u;
  host.innerHTML = ''; host.appendChild(im);
 }
-async function reprocess() { const p = SC.pages[SC.cur]; const host = $('#rvMain', SC.m); host && (host.style.opacity = .5); await processPage(p); host && (host.style.opacity = 1); showReview() }
+async function reprocess() { const p = SC.pages[SC.cur], host = $('#rvPage', SC.m); host && host.classList.add('busy'); await processPage(p); showReview() }
+function saveSheet() {
+ const m = modal(`<h3>Save scan</h3><form data-form="scSaveGo">
+  <label class="fld"><span>Name</span><input id="scName" value="${esc(SC.name)}" data-in="scName" maxlength="90"></label>
+  <label class="fld"><span>Type — decides the folder it’s filed in</span><select id="scKind" data-in="scKind">${KINDS.map(k => `<option ${k === SC.kind ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
+  <div class="fld"><span>Save as</span><div class="row" style="gap:8px"><button type="button" class="chip ${SC.fmt === 'pdf' ? 'on' : ''}" data-act="scFmt" data-f="pdf">${ic('file', 15)}One PDF (${SC.pages.length} page${SC.pages.length > 1 ? 's' : ''})</button><button type="button" class="chip ${SC.fmt === 'jpg' ? 'on' : ''}" data-act="scFmt" data-f="jpg">${ic('image', 15)}Separate images</button></div></div>
+  <div class="row end"><button type="button" class="btn ghost" data-close>Back</button><button class="btn pri">${ic('check', 18)}Save</button></div></form>`, { cls: 'mid' });
+ SC.sheet = m;
+}
+
+/* --- crop editor: big handles, edge handles, magnifier, live straightened preview --- */
 function cropMode() {
- const p = SC.pages[SC.cur], host = $('#rvMain', SC.m); SC.cropping = true;
+ const p = SC.pages[SC.cur]; SC.cropping = true;
+ const b = $('#scBody', SC.m);
+ b.innerHTML = `<div class="scbar topb"><button class="btn" data-act="crCancel">Cancel</button><b>Crop page</b><button class="btn pri" data-act="crApply">${ic('check', 18)}Done</button></div>
+  <div class="crwrap" id="crWrap"><canvas id="crC" aria-label="Crop area. Drag the corner circles to the page corners."></canvas><canvas class="crloupe" id="crL" width="280" height="280"></canvas>
+   <div class="crhint" id="crHint">Drag the circles onto the page corners · drag an edge to move it</div></div>
+  <div class="crbar"><button class="rtool" data-act="crAuto">${ic('wand', 22)}<span>Auto-detect</span></button><button class="rtool" data-act="crFull">${ic('image', 22)}<span>Whole photo</span></button><button class="rtool" data-act="crReset">${ic('restore', 22)}<span>Reset</span></button>
+   <div class="crprev"><img id="crP" alt="Straightened preview"><span>Preview</span></div></div>`;
  srcCanvas(p).then(src => {
-  host.innerHTML = `<canvas id="crC" style="touch-action:none"></canvas><canvas class="loupe" id="lp" width="220" height="220"></canvas>
-   <div style="position:absolute;bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
-   <button class="btn sm" data-act="crAuto">${ic('wand', 16)}Auto-detect</button><button class="btn sm" data-act="crFull">Full image</button>
-   <button class="btn sm" data-act="crCancel">Cancel</button><button class="btn sm pri" data-act="crApply">${ic('check', 16)}Apply</button></div>`;
-  const cv = $('#crC', SC.m), lp = $('#lp', SC.m), dpr = devicePixelRatio || 1;
-  const maxW = host.clientWidth - 32, maxH = host.clientHeight - 90, s = Math.min(maxW / src.width, maxH / src.height);
-  const cw = Math.max(50, src.width * s), ch = Math.max(50, src.height * s);
-  cv.style.width = cw + 'px'; cv.style.height = ch + 'px'; cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
-  const x = cv.getContext('2d'); let q = p.quad.map(a => [...a]), drag = -1;
+  const wrap = $('#crWrap', SC.m), cv = $('#crC', SC.m), lp = $('#crL', SC.m), x = cv.getContext('2d');
+  const small = (() => { const s = Math.min(1, 700 / Math.max(src.width, src.height)), c = document.createElement('canvas'); c.width = Math.round(src.width * s); c.height = Math.round(src.height * s); c.getContext('2d').drawImage(src, 0, 0, c.width, c.height); c._s = s; return c })();
+  const start = p.quad.map(a => [...a]); let q = p.quad.map(a => [...a]);
+  let drag = null, sel = 0, geo = null, pv = 0;
+  const layout = () => {
+   const dpr = devicePixelRatio || 1, W = wrap.clientWidth, H = wrap.clientHeight, pad = Math.min(34, W * .07);
+   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.width = W + 'px'; cv.style.height = H + 'px';
+   const s = Math.min((W - pad * 2) / src.width, (H - pad * 2) / src.height);
+   geo = { dpr, W, H, s, ox: (W - src.width * s) / 2, oy: (H - src.height * s) / 2 }; draw();
+  };
+  const toS = a => [geo.ox + a[0] * geo.s, geo.oy + a[1] * geo.s];
+  const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
   const draw = () => {
-   x.setTransform(dpr, 0, 0, dpr, 0, 0); x.drawImage(src, 0, 0, cw, ch);
-   x.beginPath(); x.rect(0, 0, cw, ch); q.forEach((a, i) => i ? x.lineTo(a[0] * s, a[1] * s) : x.moveTo(a[0] * s, a[1] * s)); x.closePath();
-   x.fillStyle = 'rgba(0,0,0,.5)'; x.fill('evenodd');
-   x.beginPath(); q.forEach((a, i) => i ? x.lineTo(a[0] * s, a[1] * s) : x.moveTo(a[0] * s, a[1] * s)); x.closePath(); x.lineWidth = 2.5; x.strokeStyle = '#4d82ff'; x.stroke();
-   q.forEach((a, i) => { x.beginPath(); x.arc(a[0] * s, a[1] * s, i === drag ? 14 : 11, 0, 7); x.fillStyle = 'rgba(26,92,255,.35)'; x.fill(); x.lineWidth = 3; x.strokeStyle = '#fff'; x.stroke() });
+   if (!geo) return;
+   const { dpr, W, H, s, ox, oy } = geo; x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, W, H);
+   x.drawImage(src, ox, oy, src.width * s, src.height * s);
+   const Q = q.map(toS);
+   x.beginPath(); x.rect(0, 0, W, H); Q.forEach((a, i) => i ? x.lineTo(...a) : x.moveTo(...a)); x.closePath(); x.fillStyle = 'rgba(3,6,15,.62)'; x.fill('evenodd');
+   x.strokeStyle = 'rgba(255,255,255,.45)'; x.lineWidth = 1;
+   for (const t of [1 / 3, 2 / 3]) { x.beginPath(); x.moveTo(...lerp(Q[0], Q[1], t)); x.lineTo(...lerp(Q[3], Q[2], t)); x.moveTo(...lerp(Q[0], Q[3], t)); x.lineTo(...lerp(Q[1], Q[2], t)); x.stroke() }
+   x.beginPath(); Q.forEach((a, i) => i ? x.lineTo(...a) : x.moveTo(...a)); x.closePath(); x.lineWidth = 5; x.strokeStyle = 'rgba(255,255,255,.9)'; x.stroke(); x.lineWidth = 2.5; x.strokeStyle = '#1A5CFF'; x.stroke();
+   for (let i = 0; i < 4; i++) { const m = lerp(Q[i], Q[(i + 1) % 4], .5), ang = Math.atan2(Q[(i + 1) % 4][1] - Q[i][1], Q[(i + 1) % 4][0] - Q[i][0]); x.save(); x.translate(...m); x.rotate(ang); x.beginPath(); x.roundRect(-14, -5, 28, 10, 5); x.fillStyle = drag && drag.e === i ? '#1A5CFF' : '#fff'; x.fill(); x.lineWidth = 2; x.strokeStyle = '#1A5CFF'; x.stroke(); x.restore() }
+   Q.forEach((a, i) => { const on = drag && drag.c === i, r = on ? 17 : 14; x.beginPath(); x.arc(a[0], a[1], r + 6, 0, 7); x.fillStyle = 'rgba(26,92,255,.25)'; x.fill(); x.beginPath(); x.arc(a[0], a[1], r, 0, 7); x.fillStyle = on || sel === i ? '#1A5CFF' : '#fff'; x.fill(); x.lineWidth = 3; x.strokeStyle = on || sel === i ? '#fff' : '#1A5CFF'; x.stroke() });
   };
-  const pos = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left), (e.clientY - r.top)] };
-  const loupe = (px, py) => {
-   const r = cv.getBoundingClientRect(), hr = host.getBoundingClientRect();
-   lp.style.display = 'block'; lp.style.left = (r.left - hr.left + px - 55) + 'px'; lp.style.top = (r.top - hr.top + py - 140) + 'px';
-   const l = lp.getContext('2d'), sx = px / s, sy = py / s, reg = (110 / 3) / s;
-   l.clearRect(0, 0, 220, 220); l.save(); l.beginPath(); l.arc(110, 110, 110, 0, 7); l.clip(); l.fillStyle = '#000'; l.fillRect(0, 0, 220, 220);
-   l.drawImage(src, sx - reg / 2, sy - reg / 2, reg, reg, 0, 0, 220, 220);
-   l.strokeStyle = '#4d82ff'; l.lineWidth = 3; l.beginPath(); l.moveTo(110, 90); l.lineTo(110, 130); l.moveTo(90, 110); l.lineTo(130, 110); l.stroke(); l.restore();
-   lp.style.width = '110px'; lp.style.height = '110px';
+  const preview = () => { clearTimeout(pv); pv = setTimeout(() => { if (!isConvex(q)) return; const c = warpQuad(small, q.map(a => [a[0] * small._s, a[1] * small._s]), 320), im = $('#crP', SC.m); if (im) im.src = c.toDataURL('image/jpeg', .8) }, 60) };
+  const loupe = (sx, sy, px, py) => {
+   const L = lp.getContext('2d'), Z = 3, R = 140, reg = R * 2 / (geo.s * Z);
+   lp.style.display = 'block'; const left = px < geo.W / 2 ? geo.W - 150 : 10; lp.style.left = left + 'px'; lp.style.top = '10px';
+   L.save(); L.clearRect(0, 0, 280, 280); L.beginPath(); L.arc(R, R, R - 2, 0, 7); L.clip(); L.fillStyle = '#000'; L.fillRect(0, 0, 280, 280);
+   L.drawImage(src, sx - reg / 2, sy - reg / 2, reg, reg, 0, 0, 280, 280);
+   const k = 280 / reg, Q = q.map(a => [(a[0] - (sx - reg / 2)) * k, (a[1] - (sy - reg / 2)) * k]);
+   L.beginPath(); Q.forEach((a, i) => i ? L.lineTo(...a) : L.moveTo(...a)); L.closePath(); L.lineWidth = 4; L.strokeStyle = '#1A5CFF'; L.stroke();
+   L.strokeStyle = '#fff'; L.lineWidth = 3; L.beginPath(); L.moveTo(R, R - 26); L.lineTo(R, R + 26); L.moveTo(R - 26, R); L.lineTo(R + 26, R); L.stroke(); L.restore();
   };
-  cv.onpointerdown = e => { const [px, py] = pos(e); let bd = 1e9; q.forEach((a, i) => { const d = Math.hypot(a[0] * s - px, a[1] * s - py); if (d < bd) { bd = d; drag = i } }); if (bd > 44) { drag = -1; return } cv.setPointerCapture(e.pointerId); loupe(px, py); draw() };
-  cv.onpointermove = e => { if (drag < 0) return; const [px, py] = pos(e); q[drag] = [clamp(px / s, 0, src.width), clamp(py / s, 0, src.height)]; loupe(clamp(px, 0, cw), clamp(py, 0, ch)); draw() };
-  cv.onpointerup = cv.onpointercancel = () => { drag = -1; lp.style.display = 'none'; draw() };
-  SC.crop = { get: () => q, set: nq => { q = nq.map(a => [...a]); draw() }, src };
-  draw();
+  const pos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top] };
+  const toImg = (px, py) => [clamp((px - geo.ox) / geo.s, 0, src.width), clamp((py - geo.oy) / geo.s, 0, src.height)];
+  const inside = (pt, Q) => { let c = false; for (let i = 0, j = 3; i < 4; j = i++) { const [xi, yi] = Q[i], [xj, yj] = Q[j]; if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) c = !c } return c };
+  cv.onpointerdown = e => {
+   const P = pos(e), Q = q.map(toS); let best = null, bd = 1e9;
+   Q.forEach((a, i) => { const d = Math.hypot(a[0] - P[0], a[1] - P[1]); if (d < bd) { bd = d; best = { c: i } } });
+   if (bd > 40) { best = null; bd = 1e9; for (let i = 0; i < 4; i++) { const m = lerp(Q[i], Q[(i + 1) % 4], .5), d = Math.hypot(m[0] - P[0], m[1] - P[1]); if (d < bd && d < 32) { bd = d; best = { e: i } } } }
+   if (!best && inside(P, Q)) best = { all: true };
+   if (!best) return;
+   drag = { ...best, from: toImg(...P), q0: q.map(a => [...a]) }; if (best.c != null) sel = best.c;
+   cv.setPointerCapture(e.pointerId); $('#crHint', SC.m).style.opacity = 0; draw();
+  };
+  cv.onpointermove = e => {
+   if (!drag) { const P = pos(e), Q = q.map(toS); cv.style.cursor = Q.some(a => Math.hypot(a[0] - P[0], a[1] - P[1]) < 40) ? 'grab' : inside(P, Q) ? 'move' : 'default'; return }
+   const P = pos(e), I = toImg(...P), dx = I[0] - drag.from[0], dy = I[1] - drag.from[1], n = drag.q0.map(a => [...a]);
+   if (drag.c != null) n[drag.c] = I;
+   else if (drag.e != null) { for (const k of [drag.e, (drag.e + 1) % 4]) n[k] = [clamp(drag.q0[k][0] + dx, 0, src.width), clamp(drag.q0[k][1] + dy, 0, src.height)] }
+   else { const mx = clamp(dx, -Math.min(...drag.q0.map(a => a[0])), src.width - Math.max(...drag.q0.map(a => a[0]))), my = clamp(dy, -Math.min(...drag.q0.map(a => a[1])), src.height - Math.max(...drag.q0.map(a => a[1]))); n.forEach((a, k) => { a[0] = drag.q0[k][0] + mx; a[1] = drag.q0[k][1] + my }) }
+   if (!isConvex(n)) return;
+   q = n; draw();
+   const focus = drag.c != null ? q[drag.c] : drag.e != null ? lerp(q[drag.e], q[(drag.e + 1) % 4], .5) : I;
+   loupe(focus[0], focus[1], P[0], P[1]);
+  };
+  cv.onpointerup = cv.onpointercancel = () => { if (!drag) return; drag = null; lp.style.display = 'none'; draw(); preview() };
+  SC.crop = { get: () => q, set: nq => { q = nq.map(a => [...a]); draw(); preview() }, reset: () => { q = start.map(a => [...a]); draw(); preview() }, src, nudge: (dx, dy) => { const n = q.map(a => [...a]); n[sel] = [clamp(n[sel][0] + dx / geo.s, 0, src.width), clamp(n[sel][1] + dy / geo.s, 0, src.height)]; if (isConvex(n)) { q = n; draw(); preview() } }, next: () => { sel = (sel + 1) % 4; draw() } };
+  const ro = new ResizeObserver(() => { if (!SC || !SC.cropping) return ro.disconnect(); layout() }); ro.observe(wrap);
+  layout(); preview();
  });
 }
 async function finishScan() {
  if (!SC || !SC.pages.length) return;
+ if (SC.sheet) { SC.sheet.close(); SC.sheet = null }
  const btn = SC.m.querySelector('[data-act=scSave]'); if (btn) { btn.disabled = true; btn.textContent = 'Saving…' }
  try {
   const name = (SC.name || defaultScanName(SC.kind)).trim().replace(/[\\/:*?"<>|]/g, '-').slice(0, 90);
@@ -410,13 +454,15 @@ Object.assign(ACT, {
  scLeft: () => { const i = SC.cur; if (i > 0) { [SC.pages[i - 1], SC.pages[i]] = [SC.pages[i], SC.pages[i - 1]]; SC.cur--; showReview() } },
  scRight: () => { const i = SC.cur; if (i < SC.pages.length - 1) { [SC.pages[i + 1], SC.pages[i]] = [SC.pages[i], SC.pages[i + 1]]; SC.cur++; showReview() } },
  scDelPage: () => { SC.pages.splice(SC.cur, 1); SC.cur = Math.max(0, SC.cur - 1); SC.pages.length ? showReview() : showCapture() },
- scFmt: d => { SC.fmt = d.f; showReview() },
+ scFmt: (d, el) => { SC.fmt = d.f; const w = el.closest('.modal'); if (w) w.querySelectorAll('[data-act=scFmt]').forEach(c => c.classList.toggle('on', c.dataset.f === d.f)) },
+ scPrev: () => { if (SC.cur > 0) { SC.cur--; showReview() } }, scNext: () => { if (SC.cur < SC.pages.length - 1) { SC.cur++; showReview() } },
+ crReset: () => SC.crop && SC.crop.reset(),
  scCrop: () => cropMode(),
  crAuto: () => { const p = SC.pages[SC.cur], q = detectQuad(SC.crop.src, SC.crop.src.width, SC.crop.src.height); q ? SC.crop.set(q) : toast('No clear page edges found — drag the corners', 'err'); if (q) p.detected = true },
  crFull: () => { const s = SC.crop.src; SC.crop.set([[0, 0], [s.width, 0], [s.width, s.height], [0, s.height]]) },
  crCancel: () => showReview(),
  crApply: async () => { const q = SC.crop.get(); if (!isConvex(q)) return toast('Corners cross over — fix them first', 'err'); SC.pages[SC.cur].quad = orderQuad(q); await reprocess() },
- scSave: () => finishScan(),
+ scSave: () => saveSheet(),
  svOpen: d => { SC_SAVED && SC_SAVED.close(); openFile(d.id) }, svShare: d => { SC_SAVED && SC_SAVED.close(); openShare(d.id) },
  svDl: d => downloadFiles([d.id]), svFolder: d => { SC_SAVED && SC_SAVED.close(); S.folder = d.f; go('files') }, svAgain: () => { SC_SAVED && SC_SAVED.close(); openScanner() },
  scView: d => { const f = S.files.find(x => x.scanId === d.id); f ? openFile(f.id) : toast('File not found', 'err') },
@@ -441,3 +487,5 @@ VIEWS.scan = () => {
   ${imgScans.length ? `<div class="sect"><h2>Scanned images</h2></div><div class="fgrid">${imgScans.map(cardHTML).join('')}</div>` : ''}`;
 };
 ACT.scImportNew = () => { openScanner(); setTimeout(() => $('#imgIn').click(), 50) };
+
+FORMS.scSaveGo = () => finishScan();

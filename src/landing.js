@@ -15,7 +15,7 @@ function showLanding() {
  L.innerHTML = `
  <header class="lnav"><a class="lbrand" href="#/" aria-label="DESk">${LOGO(36)}<span>DESk</span></a>
   <nav class="llinks"><a href="#features">Features</a><a href="#scanner">Scanner</a><a href="#sync">Sync</a><a href="#privacy">Privacy</a></nav>
-  <button class="lbtn" data-act="lStart">Open DESk</button></header>
+  ${isStandalone() ? '' : `<button class="lbtn ghost lhide-s" data-act="install">${ic('download', 18)}Install</button>`}<button class="lbtn" data-act="lStart">Open DESk</button></header>
  <section class="lhero" id="top">
   <div class="lgrid" aria-hidden="true"></div><div class="lglow" aria-hidden="true"></div>
   <div class="lfloat" aria-hidden="true">${FLOAT.map(([i, c, n, t], k) => `<div class="fcard f${k}" style="--c:${c}"><span>${ic(i, 18)}</span><div><b>${n}</b><small>→ ${t}</small></div></div>`).join('')}</div>
@@ -45,7 +45,7 @@ function showLanding() {
   <div class="syncdemo reveal" aria-hidden="true"><div class="sy-dev">${ic('phone', 40)}<small>Phone</small></div><div class="sy-path"><i></i><i></i><i></i><b>${ic('lock', 14)}</b></div><div class="sy-dev">${ic('laptop', 46)}<small>Laptop</small></div><div class="sy-code">K7M2-Q9XA</div></div></div></section>
  <section class="lsec" id="privacy"><div class="lwrap"><div class="lhead reveal center"><span class="lkick">Private by design</span><h2>Your files live on your devices. Full stop.</h2></div>
   <div class="lfeat three">${[['devices', 'On your device', 'Files, scans and passwords are stored in your browser’s private storage. There’s no DESk server.'], ['shield', 'Encrypted before it moves', 'Sync and share links are encrypted on the device; the relay only ever sees unreadable bytes.'], ['globe', 'Works offline', 'Install it like an app. It opens and works with no internet at all.']].map(([i, t, d]) => `<div class="lf reveal"><span>${ic(i, 22)}</span><h3>${t}</h3><p>${d}</p></div>`).join('')}</div></div></section>
- <section class="lsec tint"><div class="lwrap"><div class="lhead reveal center"><span class="lkick">Install</span><h2>Put DESk on your home screen</h2></div>
+ <section class="lsec tint" id="install"><div class="lwrap"><div class="lhead reveal center"><span class="lkick">Install</span><h2>Put DESk on your home screen</h2>${isStandalone() ? '' : `<button class="lbtn big" style="background:#1A5CFF;color:#fff" data-act="install">${ic('download', 20)}Add to home screen</button>`}</div>
   <div class="lfeat three">${[['phone', 'iPhone & iPad', 'Open in Safari → Share → Add to Home Screen.'], ['phone', 'Android', 'Open in Chrome → menu ⋮ → Install app.'], ['laptop', 'Computer', 'Chrome or Edge → install icon in the address bar.']].map(([i, t, d]) => `<div class="lf reveal"><span>${ic(i, 22)}</span><h3>${t}</h3><p>${d}</p></div>`).join('')}</div></div></section>
  <section class="lfinal"><div class="lwrap reveal">${LOGO(72)}<h2>Clear your desk.</h2><p>Free, private and ready in one tap.</p><button class="lbtn big" data-act="lStart">${ic('right', 20)}Open DESk</button></div></section>
  <footer class="lfoot"><span>${LOGO(22)} DESk ${APP_VERSION}</span><span><a href="#" data-act="showTerms">Privacy & Terms</a> · Hosted on GitHub Pages</span></footer>`;

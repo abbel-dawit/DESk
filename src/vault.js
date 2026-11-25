@@ -236,7 +236,7 @@ Object.assign(ACT, {
  vReset: async () => { if (!await ask('Erase the vault?', { body: 'All saved passwords on this device will be deleted. This can’t be undone.', input: 'Type ERASE to confirm', ok: 'Erase', danger: true }) === 'ERASE') return; await dbDel('kv', 'vault'); S.vaultRec = null; lockVault(); $$('#modal-root .mwrap').forEach(w => w.close()); render(); toast('Vault erased') }
 });
 async function copySecret(v, label) { if (await copyText(v, label + ' · clears in 30 s')) setTimeout(() => { try { navigator.clipboard.writeText('').catch(() => { }) } catch { } }, 30000) }
-const FORMS = {};
+
 Object.assign(FORMS, {
  vaultCreate: async f => {
   const a = $('#vp1').value, b = $('#vp2').value;

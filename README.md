@@ -21,6 +21,22 @@ You can double-click `index.html` to try it on your computer, but sync, share li
 - **Sync your devices (no account)** — the same model as BAZINGA!: *Devices → Link a device* shows a QR code, a link and an 8-character short code (works once for 15 minutes; short link `…/#/c/K7M2Q9XA`). Scan / open / type it on another phone, computer or browser and they stay in sync. Rename, pause or remove any device; *Stop syncing this device*; *Turn off sync everywhere*.
 - **Share links**: any file up to 15 MB becomes a short encrypted link + QR code (`…/#/s/<id>/<key>`). The key is only in the part after `#`, which browsers never send to a server.
 
+## External storage (SD cards, USB flash drives, external disks)
+
+*Settings → External storage → Add a drive or folder*: pick a folder on the drive once and DESk remembers it. Whenever the drive is plugged in you can:
+- **Save to drive** — select files (or open one) and choose *Save to drive*. Files go to `DESk/<folder>/<name>` on the drive, matching DESk's sorting. Files already there with the same size are skipped.
+- **Move to drive** — *Clean up* → select files → *Move to drive*: copied to the drive, then removed from DESk to free space.
+- **Back up** — copies every file to the drive. Turn on *Copy new files automatically when connected* to keep it up to date.
+- **Import** — reads files from the drive back into DESk (they're sorted again on the way in).
+
+This uses the browser's folder access, available in **Chrome, Edge and Opera on computers and Chromebooks**. Phones and other browsers don't allow apps to keep a drive linked, so there *Save to drive* opens the system share/save sheet, where you pick the SD card or USB drive (Android: Files › SD card; iPhone/iPad: Save to Files › your drive). DESk shows these steps on the device.
+
+## Add to home screen
+
+The manifest, icons (192, 512, maskable, Apple touch icon) and offline service worker are included, so DESk installs with its blue paperclip icon and opens full-screen:
+- **Android / Chrome / Edge**: DESk shows an *Install* / *Add to home screen* button (landing page, Home and Settings) that opens the browser's install prompt.
+- **iPhone / iPad**: the same button shows the Safari steps (Share → Add to Home Screen).
+
 ## Device sync — nothing to set up
 
 Devices pass data to each other through the free public relay **ntfy.sh**, encrypted on the device first (AES-GCM; the relay only sees unreadable bytes under a random topic name derived from the sync key).
@@ -50,11 +66,12 @@ The readable source is in `src/`:
 | `core.js` | helpers, icons, IndexedDB storage, encryption, zip & PDF writers, dialogs, downloads |
 | `qr.js` | built-in QR code maker (from BAZINGA!) |
 | `files.js` | auto-sorting, batch upload, file views, preview |
-| `scan.js` | document scanner (edge detection, perspective correction, clean-up filters, multi-page PDFs) |
+| `scan.js` | document scanner (edge detection, perspective correction, clean-up filters, multi-page PDFs, review & crop editor) |
 | `vault.js` | password manager and Hidden folder |
 | `sync.js` | device linking & encrypted relay sync, share links, QR scanning, backup files |
 | `devices.js` | Devices page, link/join dialogs, share dialog and share landing page |
 | `views.js` | Home, Insights, Clean up |
+| `drives.js` | SD cards, USB drives and external disks |
 | `landing.js` | splash, landing page, welcome screen |
 | `shell.js` | Settings, navigation, routes (`#/home`, `#/files`, …), events, start-up |
 

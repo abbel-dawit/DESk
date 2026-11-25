@@ -11,19 +11,20 @@ VIEWS.prefs = () => `<div class="sect" style="margin-top:6px"><h1>Settings</h1><
    <label class="fld"><span>Lock vault and Hidden after</span><select data-set="lockMin">${[1, 2, 5, 10, 15, 30, 60].map(n => `<option value="${n}" ${setting('lockMin') == n ? 'selected' : ''}>${n} minute${n > 1 ? 's' : ''} idle</option>`).join('')}</select></label>
    <label class="sw"><input type="checkbox" data-set="stealth" ${setting('stealth') ? 'checked' : ''}>Stealth mode — remove Hidden from menus (open it by tapping the DESk logo 5 times)</label>
    <div class="row" style="margin-top:12px"><button class="btn sm" data-act="lockAll">${ic('lock', 16)}Lock everything now</button></div></div>
+  ${drivesCardHTML()}
   <div class="card"><h3>Sync your devices</h3><p class="small muted" style="margin-bottom:12px">${linked() ? `Linked with ${listDevices().length - 1} other device${listDevices().length === 2 ? '' : 's'}.` : 'Link your phone and computer with a QR code — no account.'}</p><button class="btn sm pri" data-act="nav" data-v="devices">${ic('devices', 16)}Open Devices</button></div>
   <div class="card"><h3>Backup & data</h3><p class="small muted" style="margin-bottom:12px">Everything is stored on this device in your browser’s private storage${linked() ? ' and synced (encrypted) to your linked devices' : ''}.</p>
    <div class="row"><button class="btn sm" data-act="bundleOut">${ic('download', 16)}Save backup</button><button class="btn sm" data-act="bundleIn">${ic('upload', 16)}Restore backup</button><button class="btn sm" data-act="persist">${ic('shield', 16)}Protect storage</button></div>
    <hr><button class="btn sm danger" data-act="eraseAll">${ic('trash', 16)}Erase this device</button></div>
   <div class="card"><h3>About DESk</h3><div class="row" style="flex-wrap:nowrap;gap:14px">${LOGO(52)}<div><b>DESk ${APP_VERSION}</b><p class="small muted">File manager · document scanner · password vault. Works offline; your files never leave your devices unless you sync or share them, and then only encrypted.</p></div></div>
-   <div class="row" style="margin-top:12px"><button class="btn sm" data-act="tour">${ic('info', 16)}Take the tour</button><button class="btn sm ghost" data-act="showTerms">Privacy & Terms</button>${installEvt ? `<button class="btn sm pri" data-act="install">${ic('download', 16)}Install app</button>` : ''}</div>
+   <div class="row" style="margin-top:12px"><button class="btn sm" data-act="tour">${ic('info', 16)}Take the tour</button><button class="btn sm ghost" data-act="showTerms">Privacy & Terms</button>${isStandalone() ? '' : `<button class="btn sm pri" data-act="install">${ic('download', 16)}Add to home screen</button>`}</div>
    <p class="small muted" style="margin-top:12px">${MEM ? 'This browser blocks offline storage — data is kept only until you close the tab.' : 'Offline storage ready.'}</p></div></div>`;
 function avatarHTML(sz = 20) { const p = S.profile; if (p && safeThumb(p.picture)) return `<img src="${p.picture}" alt="">`; const ch = p && p.username ? p.username.trim()[0].toUpperCase() : ''; return ch ? `<b style="font-size:${sz * .8}px">${esc(ch)}</b>` : ic('id', sz) }
 Object.assign(ACT, {
  saveMe: async () => { const v = $('#meName').value.trim().slice(0, 30); if (!v) return; S.profile = { ...S.profile, username: v, updatedAt: Date.now() }; await kvSet('profile', S.profile); syncSoon(); toast('Saved'); render() },
  clearPic: async (d, el, e) => { e.preventDefault(); S.profile = { ...S.profile, picture: '', updatedAt: Date.now() }; await kvSet('profile', S.profile); syncSoon(); render() },
  tour: () => { location.hash = '#/about'; showLanding() },
- install: async () => { if (!installEvt) return; installEvt.prompt(); try { await installEvt.userChoice } catch { } installEvt = null; render() }
+ install: () => installApp()
 });
 Object.assign(ACT, {
  saveDevName: async () => { const v = $('#devName').value.trim(); if (!v) return; S.deviceName = v.slice(0, 40); S.deviceNameSet = true; await kvSet('deviceName', S.deviceName); if (SY.devices[DEVID()]) editDevice(DEVID(), { name: S.deviceName, auto: false }); toast('Saved'); render() },
@@ -91,6 +92,8 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => {
  S.lastAct = Date.now();
  if (e.key === 'Escape') { const m = topModal(); if (m) { if (SC && SC.m === m) ACT.scClose(); else m.close() } return }
+ if (SC && SC.cropping && SC.crop && topModal() === SC.m) { const k = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]; if (k) { e.preventDefault(); SC.crop.nudge(k[0] * (e.shiftKey ? 10 : 2), k[1] * (e.shiftKey ? 10 : 2)); return } if (e.key === 'Tab') { e.preventDefault(); SC.crop.next(); return } if (e.key === 'Enter') { ACT.crApply(); return } }
+ if (SC && !SC.cropping && topModal() === SC.m && SC.pages.length > 1 && !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) { if (e.key === 'ArrowLeft') return ACT.scPrev(); if (e.key === 'ArrowRight') return ACT.scNext() }
  const t = e.target, typing = /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
  if ((e.key === 'Enter' || e.key === ' ') && t.matches('[role=button][data-act]')) { e.preventDefault(); t.click(); return }
  if (e.key === '/' && !typing && !topModal()) { e.preventDefault(); $('#q').focus(); return }
@@ -176,6 +179,18 @@ async function autoEmptyTrash() {
  if (old.length) await purgeFiles(old, true);
 }
 let installEvt = null;
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+async function installApp() {
+ if (installEvt) { installEvt.prompt(); try { const c = await installEvt.userChoice; if (c && c.outcome === 'accepted') toast('DESk is being added to your home screen') } catch { } installEvt = null; renderSoon(); return }
+ const ua = navigator.userAgent, ios = /iPhone|iPad|iPod/.test(ua) || (/Mac/.test(ua) && navigator.maxTouchPoints > 1), android = /Android/.test(ua), safari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|Chrome/.test(ua);
+ const shareIc = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-3px"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
+ const steps = ios ? (safari || /CriOS|EdgiOS/.test(ua) ? `<li>Tap the <b>Share</b> button ${shareIc} ${/CriOS|EdgiOS/.test(ua) ? 'in the address bar' : 'at the bottom of Safari'}.</li><li>Scroll down and tap <b>Add to Home Screen</b>.</li><li>Tap <b>Add</b> — DESk appears with its blue paperclip icon.</li>` : '<li>Open this page in <b>Safari</b>.</li><li>Tap <b>Share</b> → <b>Add to Home Screen</b>.</li>')
+  : android ? `<li>Tap the browser menu <b>⋮</b>.</li><li>Tap <b>Install app</b> or <b>Add to Home screen</b>.</li><li>Confirm — DESk opens full-screen like a normal app.</li>`
+  : `<li>Click the install icon at the right of the address bar (Chrome / Edge), or open the browser menu.</li><li>Choose <b>Install DESk</b>.</li>`;
+ modal(`<div style="text-align:center;display:grid;gap:12px;justify-items:center"><img src="icons/icon-192.png" width="84" height="84" alt="" style="border-radius:20px;box-shadow:0 10px 30px rgba(26,92,255,.35)"><h3 style="margin:0">Add DESk to your home screen</h3><p class="muted small">It opens full-screen, works offline and keeps your files on this device.</p></div>
+  <ol class="steps">${steps}</ol><div class="row end" style="margin-top:12px"><button class="btn pri" data-close>Got it</button></div>`, { cls: 'mid' });
+}
+window.addEventListener('appinstalled', () => { installEvt = null; toast('DESk was added to your home screen'); renderSoon() });
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; renderIf('prefs') });
 async function init() {
  $('#sIc').innerHTML = ic('search', 18);
@@ -186,8 +201,8 @@ async function init() {
  S.deviceId = await kvGet('deviceId'); if (!S.deviceId) { S.deviceId = uid(12); await kvSet('deviceId', S.deviceId) }
  S.deviceName = await kvGet('deviceName'); S.deviceNameSet = !!S.deviceName; if (!S.deviceName) S.deviceName = autoName();
  S.files = (await dbAll('files').catch(() => [])) || []; S.scans = (await dbAll('scans').catch(() => [])) || [];
- S.vaultRec = await kvGet('vault'); S.hiddenCfgCache = await kvGet('hiddenCfg'); S.profile = await kvGet('profile');
- autoEmptyTrash();
+ await loadDrives(); S.vaultRec = await kvGet('vault'); S.hiddenCfgCache = await kvGet('hiddenCfg'); S.profile = await kvGet('profile');
+ autoEmptyTrash(); setTimeout(() => autoCopy().catch(() => { }), 3000);
  if (S.profile) await restoreSync();
  const r = routeFromHash();
  if (r === 'share' || r === 'join' || r === 'about') handleRoute();
@@ -200,3 +215,6 @@ async function init() {
  }
 }
 init().catch(e => { console.error(e); hideSplash(); $('#app').hidden = false; $('#view').innerHTML = `<div class="card empty"><h3>DESk couldn’t start</h3><p>${esc(e.message)}</p></div>` });
+
+let drSig = '';
+AFTER.prefs = async () => { await Promise.all(DR.list.map(driveState)); const sig = JSON.stringify(DR.state); if (sig !== drSig) { drSig = sig; renderIf('prefs') } };

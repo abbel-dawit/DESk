@@ -3,7 +3,7 @@
 Run after editing anything in src/:   python3 build.py"""
 import hashlib, pathlib
 R = pathlib.Path(__file__).parent
-ORDER = ['core', 'qr', 'files', 'scan', 'vault', 'sync', 'devices', 'views', 'landing', 'shell']
+ORDER = ['core', 'qr', 'files', 'scan', 'vault', 'sync', 'devices', 'views', 'drives', 'landing', 'shell']
 js = "/* DESk — built from src/ by build.py. Edit src/, not this file. */\n(() => {\n" + "\n".join((R / 'src' / f'{n}.js').read_text() for n in ORDER) + "\n})();\n"
 (R / 'js' / 'desk.js').write_text(js)
 h = lambda b: hashlib.sha1(b).hexdigest()[:10]

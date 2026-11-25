@@ -6,6 +6,7 @@ const S = {
 const ACT = {};      // click actions: data-act="name"
 const VIEWS = {};    // view renderers -> html
 const AFTER = {};    // after-render hooks
+const FORMS = {};    // form submit handlers: data-form="name"
 const DEF_SETTINGS = { skipDupes: true, autoDownloadMB: 10, autoEmptyDays: 30, lockMin: 5, stealth: false, vaultSync: true };
 const setting = k => (S.settings[k] === undefined ? DEF_SETTINGS[k] : S.settings[k]);
 async function setSetting(k, v) { S.settings[k] = v; S.settingsTs = S.settingsTs || {}; S.settingsTs[k] = Date.now(); await kvSet('settings', S.settings); await kvSet('settingsTs', S.settingsTs); if (typeof syncSoon === 'function') syncSoon() }
@@ -136,7 +137,7 @@ async function ingest(list, opts = {}) {
  const parts = Object.entries(cats).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${v} ${k}`);
  q.done(added.length ? `Sorted ${added.length} item${added.length > 1 ? 's' : ''}` : 'Nothing new added',
   [parts.join(' · '), dupes ? `${dupes} duplicate${dupes > 1 ? 's' : ''} skipped` : '', failed ? `${failed} failed (device storage may be full)` : ''].filter(Boolean).join(' — '));
- render(); syncSoon();
+ render(); syncSoon(); if (typeof autoCopy === 'function') autoCopy();
  return added;
 }
 async function filesFromDrop(dt) {
@@ -283,7 +284,7 @@ VIEWS.files = () => {
  const n = S.sel.size;
  const bulk = n ? `<div class="bulk"><b>${n} selected</b><span class="grow"></span>
    ${trash ? `<button class="btn sm" data-act="bRestore">${ic('restore', 18)}Restore</button><button class="btn sm" data-act="bPurge">${ic('trash', 18)}Delete forever</button>` :
-   `<button class="btn sm" data-act="bDl">${ic('download', 18)}<span class="hide-s">Download</span></button><button class="btn sm" data-act="bMove">${ic('move', 18)}Move</button><button class="btn sm" data-act="bTag">${ic('tag', 18)}Tag</button><button class="btn sm" data-act="bHide">${ic('lock', 18)}Hide</button><button class="btn sm" data-act="bTrash">${ic('trash', 18)}Delete</button>`}
+   `<button class="btn sm" data-act="bDl">${ic('download', 18)}<span class="hide-s">Download</span></button><button class="btn sm" data-act="bMove">${ic('move', 18)}Move</button><button class="btn sm" data-act="bTag">${ic('tag', 18)}Tag</button><button class="btn sm" data-act="bDrive">${ic('hdd', 18)}Save to drive</button><button class="btn sm" data-act="bHide">${ic('lock', 18)}Hide</button><button class="btn sm" data-act="bTrash">${ic('trash', 18)}Delete</button>`}
    <button class="btn sm icon" data-act="bClear" aria-label="Clear selection">${ic('x', 18)}</button></div>` : '';
  const title = { All: 'All files', Trash: 'Trash', Favorites: 'Favorites', Recent: 'Recent', Shared: 'Shared links', Elsewhere: 'On other devices' }[S.folder] || S.folder.replace(/\//g, ' › ');
  return `<div class="fwrap"><nav class="tree" aria-label="Folders">${treeHTML()}</nav><section>
@@ -357,6 +358,7 @@ function refreshPreview(id) {
    <button class="btn sm icon" data-act="pvRen" aria-label="Rename" title="Rename">${ic('edit', 18)}</button>
    <button class="btn sm icon" data-act="pvMove" aria-label="Move" title="Move">${ic('move', 18)}</button>
    <button class="btn sm icon" data-act="pvTag" aria-label="Edit tags" title="Edit tags">${ic('tag', 18)}</button>
+   <button class="btn sm icon" data-act="pvDrive" aria-label="Save to SD card or USB drive" title="Save to SD card / USB drive">${ic('hdd', 18)}</button>
    <button class="btn sm icon" data-act="pvHide" aria-label="Move to Hidden" title="Move to Hidden">${ic('lock', 18)}</button>
    ${f.scanId ? `<button class="btn sm icon" data-act="pvEditScan" aria-label="Edit scan" title="Edit scan">${ic('crop', 18)}</button>` : ''}
    <button class="btn sm icon" data-act="pvDel" aria-label="Delete" title="Delete">${ic('trash', 18)}</button></div>

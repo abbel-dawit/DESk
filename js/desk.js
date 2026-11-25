@@ -2,7 +2,7 @@
 (() => {
 'use strict';
 /* ================= CORE ================= */
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.1.0';
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -90,7 +90,7 @@ const IC = {
  left: '<path d="M19 12H5M11 6l-6 6 6 6"/>', right: '<path d="M5 12h14M13 6l6 6-6 6"/>'
 };
 const ic = (n, s = 20, extra = '') => `<svg class="i" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${IC[n] || IC.file}</svg>`;
-const LOGO = (s = 40) => `<svg class="logo" width="${s}" height="${s}" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="12" fill="#1A5CFF"/><g transform="translate(10 10) scale(1.1667)" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></g></svg>`;
+const LOGO = (s = 40) => `<svg class="logo" width="${s}" height="${s}" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="12" fill="#1A5CFF"/><g transform="translate(8.38 6.74) scale(1.3920)" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></g></svg>`;
 
 /* ---------- storage (IndexedDB, with in-memory fallback) ---------- */
 const STORES = ['files', 'blobs', 'scans', 'hidden', 'kv'];
@@ -413,6 +413,7 @@ const S = {
 const ACT = {};      // click actions: data-act="name"
 const VIEWS = {};    // view renderers -> html
 const AFTER = {};    // after-render hooks
+const FORMS = {};    // form submit handlers: data-form="name"
 const DEF_SETTINGS = { skipDupes: true, autoDownloadMB: 10, autoEmptyDays: 30, lockMin: 5, stealth: false, vaultSync: true };
 const setting = k => (S.settings[k] === undefined ? DEF_SETTINGS[k] : S.settings[k]);
 async function setSetting(k, v) { S.settings[k] = v; S.settingsTs = S.settingsTs || {}; S.settingsTs[k] = Date.now(); await kvSet('settings', S.settings); await kvSet('settingsTs', S.settingsTs); if (typeof syncSoon === 'function') syncSoon() }
@@ -543,7 +544,7 @@ async function ingest(list, opts = {}) {
  const parts = Object.entries(cats).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${v} ${k}`);
  q.done(added.length ? `Sorted ${added.length} item${added.length > 1 ? 's' : ''}` : 'Nothing new added',
   [parts.join(' · '), dupes ? `${dupes} duplicate${dupes > 1 ? 's' : ''} skipped` : '', failed ? `${failed} failed (device storage may be full)` : ''].filter(Boolean).join(' — '));
- render(); syncSoon();
+ render(); syncSoon(); if (typeof autoCopy === 'function') autoCopy();
  return added;
 }
 async function filesFromDrop(dt) {
@@ -690,7 +691,7 @@ VIEWS.files = () => {
  const n = S.sel.size;
  const bulk = n ? `<div class="bulk"><b>${n} selected</b><span class="grow"></span>
    ${trash ? `<button class="btn sm" data-act="bRestore">${ic('restore', 18)}Restore</button><button class="btn sm" data-act="bPurge">${ic('trash', 18)}Delete forever</button>` :
-   `<button class="btn sm" data-act="bDl">${ic('download', 18)}<span class="hide-s">Download</span></button><button class="btn sm" data-act="bMove">${ic('move', 18)}Move</button><button class="btn sm" data-act="bTag">${ic('tag', 18)}Tag</button><button class="btn sm" data-act="bHide">${ic('lock', 18)}Hide</button><button class="btn sm" data-act="bTrash">${ic('trash', 18)}Delete</button>`}
+   `<button class="btn sm" data-act="bDl">${ic('download', 18)}<span class="hide-s">Download</span></button><button class="btn sm" data-act="bMove">${ic('move', 18)}Move</button><button class="btn sm" data-act="bTag">${ic('tag', 18)}Tag</button><button class="btn sm" data-act="bDrive">${ic('hdd', 18)}Save to drive</button><button class="btn sm" data-act="bHide">${ic('lock', 18)}Hide</button><button class="btn sm" data-act="bTrash">${ic('trash', 18)}Delete</button>`}
    <button class="btn sm icon" data-act="bClear" aria-label="Clear selection">${ic('x', 18)}</button></div>` : '';
  const title = { All: 'All files', Trash: 'Trash', Favorites: 'Favorites', Recent: 'Recent', Shared: 'Shared links', Elsewhere: 'On other devices' }[S.folder] || S.folder.replace(/\//g, ' › ');
  return `<div class="fwrap"><nav class="tree" aria-label="Folders">${treeHTML()}</nav><section>
@@ -764,6 +765,7 @@ function refreshPreview(id) {
    <button class="btn sm icon" data-act="pvRen" aria-label="Rename" title="Rename">${ic('edit', 18)}</button>
    <button class="btn sm icon" data-act="pvMove" aria-label="Move" title="Move">${ic('move', 18)}</button>
    <button class="btn sm icon" data-act="pvTag" aria-label="Edit tags" title="Edit tags">${ic('tag', 18)}</button>
+   <button class="btn sm icon" data-act="pvDrive" aria-label="Save to SD card or USB drive" title="Save to SD card / USB drive">${ic('hdd', 18)}</button>
    <button class="btn sm icon" data-act="pvHide" aria-label="Move to Hidden" title="Move to Hidden">${ic('lock', 18)}</button>
    ${f.scanId ? `<button class="btn sm icon" data-act="pvEditScan" aria-label="Edit scan" title="Edit scan">${ic('crop', 18)}</button>` : ''}
    <button class="btn sm icon" data-act="pvDel" aria-label="Delete" title="Delete">${ic('trash', 18)}</button></div>
@@ -1072,80 +1074,124 @@ async function addImagePages(files) {
  if (missed) toast(missed === 1 ? 'Couldn’t find the page edges on one photo — adjust the corners with Crop' : `${missed} photos need their corners adjusted with Crop`);
  stopCamera(); showReview();
 }
-/* --- review & edit --- */
+/* --- review & edit: the page is always shown whole, fitted to the space --- */
 function showReview() {
  if (!SC) return;
  stopCamera(); SC.video = null; SC.cropping = false;
  if (!SC.pages.length) return showCapture();
  if (!SC.kind) SC.kind = guessKind(SC.pages[0]);
  if (!SC.name) SC.name = defaultScanName(SC.kind);
- const b = $('#scBody', SC.m), p = SC.pages[SC.cur];
- b.innerHTML = `<div class="scbar topb"><button class="btn icon" data-act="scClose" aria-label="Close">${ic('x')}</button><b>${SC.editingId ? 'Edit' : 'Review'} · ${SC.cur + 1}/${SC.pages.length}</b>
+ SC.cur = clamp(SC.cur, 0, SC.pages.length - 1);
+ const b = $('#scBody', SC.m), p = SC.pages[SC.cur], n = SC.pages.length;
+ const tool = (act, icon, label, dis = false) => `<button class="rtool" data-act="${act}" ${dis ? 'disabled' : ''}>${ic(icon, 22)}<span>${label}</span></button>`;
+ b.innerHTML = `<div class="scbar topb"><button class="btn icon" data-act="scClose" aria-label="Close">${ic('x')}</button><b>${SC.editingId ? 'Edit scan' : 'Review'} · page ${SC.cur + 1} of ${n}</b>
    <button class="btn pri" data-act="scSave">${ic('check', 18)}Save</button></div>
-  <div class="rev"><div class="revmain" id="rvMain"></div>
+  <div class="rev">
+   <div class="revmain" id="rvMain"><div class="rvpage" id="rvPage"></div>
+    ${n > 1 ? `<button class="rvnav l" data-act="scPrev" aria-label="Previous page" ${SC.cur ? '' : 'disabled'}>${ic('back', 22)}</button><button class="rvnav r" data-act="scNext" aria-label="Next page" ${SC.cur < n - 1 ? '' : 'disabled'}>${ic('chev', 22)}</button>` : ''}
+    ${p.detected ? '' : `<button class="rvwarn" data-act="scCrop">${ic('warn', 16)}Page edges not found — tap to adjust</button>`}</div>
    <div class="revside">
-    <label for="scName">Name</label><input id="scName" value="${esc(SC.name)}" data-in="scName">
-    <label for="scKind">Type — decides the folder</label><select id="scKind" data-in="scKind" style="background:#141a2a;border-color:#263049;color:#fff">${KINDS.map(k => `<option ${k === SC.kind ? 'selected' : ''}>${k}</option>`).join('')}</select>
-    <label>Clean-up</label><div class="row" style="gap:6px">${FILTERS.map(([k, l]) => `<button class="chip ${p.filter === k ? 'on' : ''}" data-act="scFilter" data-f="${k}">${l}</button>`).join('')}</div>
-    <label>Page</label><div class="row" style="gap:6px">
-     <button class="btn sm" data-act="scCrop">${ic('crop', 16)}Crop</button><button class="btn sm" data-act="scRot">${ic('rotate', 16)}Rotate</button>
-     <button class="btn sm icon" data-act="scLeft" aria-label="Move page earlier" ${SC.cur ? '' : 'disabled'}>${ic('left', 16)}</button><button class="btn sm icon" data-act="scRight" aria-label="Move page later" ${SC.cur < SC.pages.length - 1 ? '' : 'disabled'}>${ic('right', 16)}</button>
-     <button class="btn sm icon" data-act="scDelPage" aria-label="Delete page">${ic('trash', 16)}</button></div>
-    <label>Save as</label><div class="row" style="gap:6px"><button class="chip ${SC.fmt === 'pdf' ? 'on' : ''}" data-act="scFmt" data-f="pdf">One PDF</button><button class="chip ${SC.fmt === 'jpg' ? 'on' : ''}" data-act="scFmt" data-f="jpg">Images (JPG)</button></div>
-    <button class="btn" data-act="scAdd">${ic('plus', 18)}Add pages</button>
-    <p class="small" style="color:#8792ab">${p.detected ? 'Edges found automatically.' : 'Edges not found — use Crop to set the corners.'} ${p.w}×${p.h}px</p>
+    <div class="rtools">${tool('scCrop', 'crop', 'Crop')}${tool('scRot', 'rotate', 'Rotate')}${tool('scLeft', 'left', 'Earlier', !SC.cur)}${tool('scRight', 'right', 'Later', SC.cur >= n - 1)}${tool('scDelPage', 'trash', 'Delete')}${tool('scAdd', 'plus', 'Add')}</div>
+    <div class="rfilters" role="group" aria-label="Clean-up">${FILTERS.map(([k, l]) => `<button class="chip ${p.filter === k ? 'on' : ''}" data-act="scFilter" data-f="${k}">${l}</button>`).join('')}</div>
+    <p class="small rinfo">${p.w}×${p.h}px · ${FILTERS.find(f => f[0] === p.filter)[1]} clean-up</p>
    </div></div>
   <div class="pthumbs">${SC.pages.map((pg, i) => `<button class="${i === SC.cur ? 'on' : ''}" data-act="scPick" data-i="${i}" aria-label="Page ${i + 1}"><img src="${pg.thumb}" alt=""><span>${i + 1}</span></button>`).join('')}
-   <button class="btn" data-act="scAdd" style="height:80px;flex:none">${ic('plus', 20)}</button></div>`;
+   <button class="padd" data-act="scAdd" aria-label="Add pages">${ic('plus', 22)}</button></div>`;
  drawReviewPage();
+ const t = SC.m.querySelector('.pthumbs .on'); t && t.scrollIntoView({ block: 'nearest', inline: 'center' });
 }
 function drawReviewPage() {
- const host = $('#rvMain', SC.m), p = SC.pages[SC.cur]; if (!host || !p) return;
- host.innerHTML = '<span style="color:#8792ab">Processing…</span>';
+ const host = $('#rvPage', SC.m), p = SC.pages[SC.cur]; if (!host || !p) return;
  const im = new Image(); im.alt = 'Scanned page ' + (SC.cur + 1);
- im.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;box-shadow:0 10px 40px rgba(0,0,0,.6);background:#fff';
  const u = URL.createObjectURL(p.out); im.onload = () => setTimeout(() => URL.revokeObjectURL(u), 500); im.src = u;
  host.innerHTML = ''; host.appendChild(im);
 }
-async function reprocess() { const p = SC.pages[SC.cur]; const host = $('#rvMain', SC.m); host && (host.style.opacity = .5); await processPage(p); host && (host.style.opacity = 1); showReview() }
+async function reprocess() { const p = SC.pages[SC.cur], host = $('#rvPage', SC.m); host && host.classList.add('busy'); await processPage(p); showReview() }
+function saveSheet() {
+ const m = modal(`<h3>Save scan</h3><form data-form="scSaveGo">
+  <label class="fld"><span>Name</span><input id="scName" value="${esc(SC.name)}" data-in="scName" maxlength="90"></label>
+  <label class="fld"><span>Type — decides the folder it’s filed in</span><select id="scKind" data-in="scKind">${KINDS.map(k => `<option ${k === SC.kind ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
+  <div class="fld"><span>Save as</span><div class="row" style="gap:8px"><button type="button" class="chip ${SC.fmt === 'pdf' ? 'on' : ''}" data-act="scFmt" data-f="pdf">${ic('file', 15)}One PDF (${SC.pages.length} page${SC.pages.length > 1 ? 's' : ''})</button><button type="button" class="chip ${SC.fmt === 'jpg' ? 'on' : ''}" data-act="scFmt" data-f="jpg">${ic('image', 15)}Separate images</button></div></div>
+  <div class="row end"><button type="button" class="btn ghost" data-close>Back</button><button class="btn pri">${ic('check', 18)}Save</button></div></form>`, { cls: 'mid' });
+ SC.sheet = m;
+}
+
+/* --- crop editor: big handles, edge handles, magnifier, live straightened preview --- */
 function cropMode() {
- const p = SC.pages[SC.cur], host = $('#rvMain', SC.m); SC.cropping = true;
+ const p = SC.pages[SC.cur]; SC.cropping = true;
+ const b = $('#scBody', SC.m);
+ b.innerHTML = `<div class="scbar topb"><button class="btn" data-act="crCancel">Cancel</button><b>Crop page</b><button class="btn pri" data-act="crApply">${ic('check', 18)}Done</button></div>
+  <div class="crwrap" id="crWrap"><canvas id="crC" aria-label="Crop area. Drag the corner circles to the page corners."></canvas><canvas class="crloupe" id="crL" width="280" height="280"></canvas>
+   <div class="crhint" id="crHint">Drag the circles onto the page corners · drag an edge to move it</div></div>
+  <div class="crbar"><button class="rtool" data-act="crAuto">${ic('wand', 22)}<span>Auto-detect</span></button><button class="rtool" data-act="crFull">${ic('image', 22)}<span>Whole photo</span></button><button class="rtool" data-act="crReset">${ic('restore', 22)}<span>Reset</span></button>
+   <div class="crprev"><img id="crP" alt="Straightened preview"><span>Preview</span></div></div>`;
  srcCanvas(p).then(src => {
-  host.innerHTML = `<canvas id="crC" style="touch-action:none"></canvas><canvas class="loupe" id="lp" width="220" height="220"></canvas>
-   <div style="position:absolute;bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
-   <button class="btn sm" data-act="crAuto">${ic('wand', 16)}Auto-detect</button><button class="btn sm" data-act="crFull">Full image</button>
-   <button class="btn sm" data-act="crCancel">Cancel</button><button class="btn sm pri" data-act="crApply">${ic('check', 16)}Apply</button></div>`;
-  const cv = $('#crC', SC.m), lp = $('#lp', SC.m), dpr = devicePixelRatio || 1;
-  const maxW = host.clientWidth - 32, maxH = host.clientHeight - 90, s = Math.min(maxW / src.width, maxH / src.height);
-  const cw = Math.max(50, src.width * s), ch = Math.max(50, src.height * s);
-  cv.style.width = cw + 'px'; cv.style.height = ch + 'px'; cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
-  const x = cv.getContext('2d'); let q = p.quad.map(a => [...a]), drag = -1;
+  const wrap = $('#crWrap', SC.m), cv = $('#crC', SC.m), lp = $('#crL', SC.m), x = cv.getContext('2d');
+  const small = (() => { const s = Math.min(1, 700 / Math.max(src.width, src.height)), c = document.createElement('canvas'); c.width = Math.round(src.width * s); c.height = Math.round(src.height * s); c.getContext('2d').drawImage(src, 0, 0, c.width, c.height); c._s = s; return c })();
+  const start = p.quad.map(a => [...a]); let q = p.quad.map(a => [...a]);
+  let drag = null, sel = 0, geo = null, pv = 0;
+  const layout = () => {
+   const dpr = devicePixelRatio || 1, W = wrap.clientWidth, H = wrap.clientHeight, pad = Math.min(34, W * .07);
+   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.width = W + 'px'; cv.style.height = H + 'px';
+   const s = Math.min((W - pad * 2) / src.width, (H - pad * 2) / src.height);
+   geo = { dpr, W, H, s, ox: (W - src.width * s) / 2, oy: (H - src.height * s) / 2 }; draw();
+  };
+  const toS = a => [geo.ox + a[0] * geo.s, geo.oy + a[1] * geo.s];
+  const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
   const draw = () => {
-   x.setTransform(dpr, 0, 0, dpr, 0, 0); x.drawImage(src, 0, 0, cw, ch);
-   x.beginPath(); x.rect(0, 0, cw, ch); q.forEach((a, i) => i ? x.lineTo(a[0] * s, a[1] * s) : x.moveTo(a[0] * s, a[1] * s)); x.closePath();
-   x.fillStyle = 'rgba(0,0,0,.5)'; x.fill('evenodd');
-   x.beginPath(); q.forEach((a, i) => i ? x.lineTo(a[0] * s, a[1] * s) : x.moveTo(a[0] * s, a[1] * s)); x.closePath(); x.lineWidth = 2.5; x.strokeStyle = '#4d82ff'; x.stroke();
-   q.forEach((a, i) => { x.beginPath(); x.arc(a[0] * s, a[1] * s, i === drag ? 14 : 11, 0, 7); x.fillStyle = 'rgba(26,92,255,.35)'; x.fill(); x.lineWidth = 3; x.strokeStyle = '#fff'; x.stroke() });
+   if (!geo) return;
+   const { dpr, W, H, s, ox, oy } = geo; x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, W, H);
+   x.drawImage(src, ox, oy, src.width * s, src.height * s);
+   const Q = q.map(toS);
+   x.beginPath(); x.rect(0, 0, W, H); Q.forEach((a, i) => i ? x.lineTo(...a) : x.moveTo(...a)); x.closePath(); x.fillStyle = 'rgba(3,6,15,.62)'; x.fill('evenodd');
+   x.strokeStyle = 'rgba(255,255,255,.45)'; x.lineWidth = 1;
+   for (const t of [1 / 3, 2 / 3]) { x.beginPath(); x.moveTo(...lerp(Q[0], Q[1], t)); x.lineTo(...lerp(Q[3], Q[2], t)); x.moveTo(...lerp(Q[0], Q[3], t)); x.lineTo(...lerp(Q[1], Q[2], t)); x.stroke() }
+   x.beginPath(); Q.forEach((a, i) => i ? x.lineTo(...a) : x.moveTo(...a)); x.closePath(); x.lineWidth = 5; x.strokeStyle = 'rgba(255,255,255,.9)'; x.stroke(); x.lineWidth = 2.5; x.strokeStyle = '#1A5CFF'; x.stroke();
+   for (let i = 0; i < 4; i++) { const m = lerp(Q[i], Q[(i + 1) % 4], .5), ang = Math.atan2(Q[(i + 1) % 4][1] - Q[i][1], Q[(i + 1) % 4][0] - Q[i][0]); x.save(); x.translate(...m); x.rotate(ang); x.beginPath(); x.roundRect(-14, -5, 28, 10, 5); x.fillStyle = drag && drag.e === i ? '#1A5CFF' : '#fff'; x.fill(); x.lineWidth = 2; x.strokeStyle = '#1A5CFF'; x.stroke(); x.restore() }
+   Q.forEach((a, i) => { const on = drag && drag.c === i, r = on ? 17 : 14; x.beginPath(); x.arc(a[0], a[1], r + 6, 0, 7); x.fillStyle = 'rgba(26,92,255,.25)'; x.fill(); x.beginPath(); x.arc(a[0], a[1], r, 0, 7); x.fillStyle = on || sel === i ? '#1A5CFF' : '#fff'; x.fill(); x.lineWidth = 3; x.strokeStyle = on || sel === i ? '#fff' : '#1A5CFF'; x.stroke() });
   };
-  const pos = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left), (e.clientY - r.top)] };
-  const loupe = (px, py) => {
-   const r = cv.getBoundingClientRect(), hr = host.getBoundingClientRect();
-   lp.style.display = 'block'; lp.style.left = (r.left - hr.left + px - 55) + 'px'; lp.style.top = (r.top - hr.top + py - 140) + 'px';
-   const l = lp.getContext('2d'), sx = px / s, sy = py / s, reg = (110 / 3) / s;
-   l.clearRect(0, 0, 220, 220); l.save(); l.beginPath(); l.arc(110, 110, 110, 0, 7); l.clip(); l.fillStyle = '#000'; l.fillRect(0, 0, 220, 220);
-   l.drawImage(src, sx - reg / 2, sy - reg / 2, reg, reg, 0, 0, 220, 220);
-   l.strokeStyle = '#4d82ff'; l.lineWidth = 3; l.beginPath(); l.moveTo(110, 90); l.lineTo(110, 130); l.moveTo(90, 110); l.lineTo(130, 110); l.stroke(); l.restore();
-   lp.style.width = '110px'; lp.style.height = '110px';
+  const preview = () => { clearTimeout(pv); pv = setTimeout(() => { if (!isConvex(q)) return; const c = warpQuad(small, q.map(a => [a[0] * small._s, a[1] * small._s]), 320), im = $('#crP', SC.m); if (im) im.src = c.toDataURL('image/jpeg', .8) }, 60) };
+  const loupe = (sx, sy, px, py) => {
+   const L = lp.getContext('2d'), Z = 3, R = 140, reg = R * 2 / (geo.s * Z);
+   lp.style.display = 'block'; const left = px < geo.W / 2 ? geo.W - 150 : 10; lp.style.left = left + 'px'; lp.style.top = '10px';
+   L.save(); L.clearRect(0, 0, 280, 280); L.beginPath(); L.arc(R, R, R - 2, 0, 7); L.clip(); L.fillStyle = '#000'; L.fillRect(0, 0, 280, 280);
+   L.drawImage(src, sx - reg / 2, sy - reg / 2, reg, reg, 0, 0, 280, 280);
+   const k = 280 / reg, Q = q.map(a => [(a[0] - (sx - reg / 2)) * k, (a[1] - (sy - reg / 2)) * k]);
+   L.beginPath(); Q.forEach((a, i) => i ? L.lineTo(...a) : L.moveTo(...a)); L.closePath(); L.lineWidth = 4; L.strokeStyle = '#1A5CFF'; L.stroke();
+   L.strokeStyle = '#fff'; L.lineWidth = 3; L.beginPath(); L.moveTo(R, R - 26); L.lineTo(R, R + 26); L.moveTo(R - 26, R); L.lineTo(R + 26, R); L.stroke(); L.restore();
   };
-  cv.onpointerdown = e => { const [px, py] = pos(e); let bd = 1e9; q.forEach((a, i) => { const d = Math.hypot(a[0] * s - px, a[1] * s - py); if (d < bd) { bd = d; drag = i } }); if (bd > 44) { drag = -1; return } cv.setPointerCapture(e.pointerId); loupe(px, py); draw() };
-  cv.onpointermove = e => { if (drag < 0) return; const [px, py] = pos(e); q[drag] = [clamp(px / s, 0, src.width), clamp(py / s, 0, src.height)]; loupe(clamp(px, 0, cw), clamp(py, 0, ch)); draw() };
-  cv.onpointerup = cv.onpointercancel = () => { drag = -1; lp.style.display = 'none'; draw() };
-  SC.crop = { get: () => q, set: nq => { q = nq.map(a => [...a]); draw() }, src };
-  draw();
+  const pos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top] };
+  const toImg = (px, py) => [clamp((px - geo.ox) / geo.s, 0, src.width), clamp((py - geo.oy) / geo.s, 0, src.height)];
+  const inside = (pt, Q) => { let c = false; for (let i = 0, j = 3; i < 4; j = i++) { const [xi, yi] = Q[i], [xj, yj] = Q[j]; if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) c = !c } return c };
+  cv.onpointerdown = e => {
+   const P = pos(e), Q = q.map(toS); let best = null, bd = 1e9;
+   Q.forEach((a, i) => { const d = Math.hypot(a[0] - P[0], a[1] - P[1]); if (d < bd) { bd = d; best = { c: i } } });
+   if (bd > 40) { best = null; bd = 1e9; for (let i = 0; i < 4; i++) { const m = lerp(Q[i], Q[(i + 1) % 4], .5), d = Math.hypot(m[0] - P[0], m[1] - P[1]); if (d < bd && d < 32) { bd = d; best = { e: i } } } }
+   if (!best && inside(P, Q)) best = { all: true };
+   if (!best) return;
+   drag = { ...best, from: toImg(...P), q0: q.map(a => [...a]) }; if (best.c != null) sel = best.c;
+   cv.setPointerCapture(e.pointerId); $('#crHint', SC.m).style.opacity = 0; draw();
+  };
+  cv.onpointermove = e => {
+   if (!drag) { const P = pos(e), Q = q.map(toS); cv.style.cursor = Q.some(a => Math.hypot(a[0] - P[0], a[1] - P[1]) < 40) ? 'grab' : inside(P, Q) ? 'move' : 'default'; return }
+   const P = pos(e), I = toImg(...P), dx = I[0] - drag.from[0], dy = I[1] - drag.from[1], n = drag.q0.map(a => [...a]);
+   if (drag.c != null) n[drag.c] = I;
+   else if (drag.e != null) { for (const k of [drag.e, (drag.e + 1) % 4]) n[k] = [clamp(drag.q0[k][0] + dx, 0, src.width), clamp(drag.q0[k][1] + dy, 0, src.height)] }
+   else { const mx = clamp(dx, -Math.min(...drag.q0.map(a => a[0])), src.width - Math.max(...drag.q0.map(a => a[0]))), my = clamp(dy, -Math.min(...drag.q0.map(a => a[1])), src.height - Math.max(...drag.q0.map(a => a[1]))); n.forEach((a, k) => { a[0] = drag.q0[k][0] + mx; a[1] = drag.q0[k][1] + my }) }
+   if (!isConvex(n)) return;
+   q = n; draw();
+   const focus = drag.c != null ? q[drag.c] : drag.e != null ? lerp(q[drag.e], q[(drag.e + 1) % 4], .5) : I;
+   loupe(focus[0], focus[1], P[0], P[1]);
+  };
+  cv.onpointerup = cv.onpointercancel = () => { if (!drag) return; drag = null; lp.style.display = 'none'; draw(); preview() };
+  SC.crop = { get: () => q, set: nq => { q = nq.map(a => [...a]); draw(); preview() }, reset: () => { q = start.map(a => [...a]); draw(); preview() }, src, nudge: (dx, dy) => { const n = q.map(a => [...a]); n[sel] = [clamp(n[sel][0] + dx / geo.s, 0, src.width), clamp(n[sel][1] + dy / geo.s, 0, src.height)]; if (isConvex(n)) { q = n; draw(); preview() } }, next: () => { sel = (sel + 1) % 4; draw() } };
+  const ro = new ResizeObserver(() => { if (!SC || !SC.cropping) return ro.disconnect(); layout() }); ro.observe(wrap);
+  layout(); preview();
  });
 }
 async function finishScan() {
  if (!SC || !SC.pages.length) return;
+ if (SC.sheet) { SC.sheet.close(); SC.sheet = null }
  const btn = SC.m.querySelector('[data-act=scSave]'); if (btn) { btn.disabled = true; btn.textContent = 'Saving…' }
  try {
   const name = (SC.name || defaultScanName(SC.kind)).trim().replace(/[\\/:*?"<>|]/g, '-').slice(0, 90);
@@ -1198,13 +1244,15 @@ Object.assign(ACT, {
  scLeft: () => { const i = SC.cur; if (i > 0) { [SC.pages[i - 1], SC.pages[i]] = [SC.pages[i], SC.pages[i - 1]]; SC.cur--; showReview() } },
  scRight: () => { const i = SC.cur; if (i < SC.pages.length - 1) { [SC.pages[i + 1], SC.pages[i]] = [SC.pages[i], SC.pages[i + 1]]; SC.cur++; showReview() } },
  scDelPage: () => { SC.pages.splice(SC.cur, 1); SC.cur = Math.max(0, SC.cur - 1); SC.pages.length ? showReview() : showCapture() },
- scFmt: d => { SC.fmt = d.f; showReview() },
+ scFmt: (d, el) => { SC.fmt = d.f; const w = el.closest('.modal'); if (w) w.querySelectorAll('[data-act=scFmt]').forEach(c => c.classList.toggle('on', c.dataset.f === d.f)) },
+ scPrev: () => { if (SC.cur > 0) { SC.cur--; showReview() } }, scNext: () => { if (SC.cur < SC.pages.length - 1) { SC.cur++; showReview() } },
+ crReset: () => SC.crop && SC.crop.reset(),
  scCrop: () => cropMode(),
  crAuto: () => { const p = SC.pages[SC.cur], q = detectQuad(SC.crop.src, SC.crop.src.width, SC.crop.src.height); q ? SC.crop.set(q) : toast('No clear page edges found — drag the corners', 'err'); if (q) p.detected = true },
  crFull: () => { const s = SC.crop.src; SC.crop.set([[0, 0], [s.width, 0], [s.width, s.height], [0, s.height]]) },
  crCancel: () => showReview(),
  crApply: async () => { const q = SC.crop.get(); if (!isConvex(q)) return toast('Corners cross over — fix them first', 'err'); SC.pages[SC.cur].quad = orderQuad(q); await reprocess() },
- scSave: () => finishScan(),
+ scSave: () => saveSheet(),
  svOpen: d => { SC_SAVED && SC_SAVED.close(); openFile(d.id) }, svShare: d => { SC_SAVED && SC_SAVED.close(); openShare(d.id) },
  svDl: d => downloadFiles([d.id]), svFolder: d => { SC_SAVED && SC_SAVED.close(); S.folder = d.f; go('files') }, svAgain: () => { SC_SAVED && SC_SAVED.close(); openScanner() },
  scView: d => { const f = S.files.find(x => x.scanId === d.id); f ? openFile(f.id) : toast('File not found', 'err') },
@@ -1229,6 +1277,8 @@ VIEWS.scan = () => {
   ${imgScans.length ? `<div class="sect"><h2>Scanned images</h2></div><div class="fgrid">${imgScans.map(cardHTML).join('')}</div>` : ''}`;
 };
 ACT.scImportNew = () => { openScanner(); setTimeout(() => $('#imgIn').click(), 50) };
+
+FORMS.scSaveGo = () => finishScan();
 
 /* ================= PASSWORD VAULT ================= */
 const WORDS = 'able acid aged also area army away baby back ball band bank base bath bear beat bell belt best bird blue boat body bone book boot born boss both bowl bulk burn bush busy cake calm camp card care cart case cash cast cell chat chef city clay clip club coal coat code coin cold cone cook cool cope copy cord core corn cost crew crop cube cult cure dark data date dawn deal dear deck deep deer desk dial dice diet dish dock dome door dose dove draw drum duck dune dust duty each earn ease east echo edge else epic even ever exam face fact fair fall farm fast fern film fire firm fish flag flat flow foam fold folk font food foot ford fork form fort fuel full fund gain game gate gear gift glad glow glue goal gold golf good gown grid grin grip gulf hail half hall halo hand harp hawk heat herb hero hike hill hint hive hold home hood hook hope horn host hour huge hunt idea inch iron isle item jade jazz jean joke jump jury keen kite knee knot lace lady lake lamp land lane lava lawn leaf lens life lift lily lime line lion list loaf lock loft logo loop lord loud luck lump lung main mall malt maple mask meal melt menu mild milk mill mind mint mist mode mole moon moss moth much mule nail navy neat neck nest news node noon nose note oak oath oval oven pace pack page palm park path peak pear pine pink pipe plan plot plum poem pole pond pony pool port pose pull pump pure quiz race rack raft rail rain ramp rank rare reef rice ride ring rise road robe rock roof room root rope rose ruby rule sage sail salt sand seal seed ship shoe silk sing site size skin sled slow snow soap sock sofa soil song soup spin star stem step stir suit sun surf swan tail tale tank tape task team tent test tide tile time tone tool toss tour town tram tree trip tube tuna tune twin unit vase vast verb vest view vine visa volt vote wage wall wand warm wave wax weed well west whip wide wild wind wing wire wise wolf wood wool word yard yarn year yoga zero zinc zone'.split(' ');
@@ -1468,7 +1518,7 @@ Object.assign(ACT, {
  vReset: async () => { if (!await ask('Erase the vault?', { body: 'All saved passwords on this device will be deleted. This can’t be undone.', input: 'Type ERASE to confirm', ok: 'Erase', danger: true }) === 'ERASE') return; await dbDel('kv', 'vault'); S.vaultRec = null; lockVault(); $$('#modal-root .mwrap').forEach(w => w.close()); render(); toast('Vault erased') }
 });
 async function copySecret(v, label) { if (await copyText(v, label + ' · clears in 30 s')) setTimeout(() => { try { navigator.clipboard.writeText('').catch(() => { }) } catch { } }, 30000) }
-const FORMS = {};
+
 Object.assign(FORMS, {
  vaultCreate: async f => {
   const a = $('#vp1').value, b = $('#vp2').value;
@@ -2304,6 +2354,7 @@ VIEWS.home = () => {
  if (tr.length) tips.push(['trash', `${tr.length} item${tr.length > 1 ? 's' : ''} in Trash · ${fmtB(tr.reduce((a, f) => a + f.size, 0))}`, 'Open Trash', 'trash']);
  if (S.vault) { const H = vaultHealth(); if (H.weak.length || H.reused.length) tips.push(['shield', `${H.weak.length} weak and ${H.reused.length} reused passwords`, 'Fix in Passwords', 'vault']) }
  else if (!S.vaultRec) tips.push(['key', 'Keep logins, cards and Wi-Fi keys encrypted in one place', 'Set up the vault', 'vault']);
+ if (!isStandalone() && ONLINE_APP()) tips.push(['phone', 'Add DESk to your home screen — it opens like an app and works offline', 'Install DESk', 'install']);
  if (syncAvailable() && !linked()) tips.push(['devices', 'Link your phone and computer to see files everywhere', 'Link devices', 'devices']);
  return `<div class="sect" style="margin-top:4px"><div><h1>${greet()}</h1><p class="muted">${new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })} · ${L.length} item${L.length === 1 ? '' : 's'} sorted on ${esc(S.deviceName)}</p></div></div>
  <div class="hero"><div class="card ringcard"><div class="ring" id="ring">${ringSVG(0)}<div class="lab"><b>${fmtB(bytes)}</b><span class="small muted">in DESk</span></div></div>
@@ -2313,7 +2364,7 @@ VIEWS.home = () => {
    <button data-act="upFiles"><span class="ib">${ic('upload')}</span>Upload files</button><button data-act="upDir"><span class="ib">${ic('folder')}</span>Upload folder</button>
    <button data-act="scan"><span class="ib">${ic('scan')}</span>Scan document</button><button data-act="vNewQuick"><span class="ib">${ic('key')}</span>New password</button>
    ${setting('stealth') ? '' : `<button data-act="nav" data-v="hidden"><span class="ib">${ic('eyeoff')}</span>Hidden files</button>`}<button data-act="nav" data-v="devices"><span class="ib">${ic('qr')}</span>Link a device</button></div></div></div>
- ${tips.length ? `<div class="grid g2" style="margin-top:16px">${tips.slice(0, 4).map(([i, t, a, v]) => `<button class="card row" style="text-align:left;flex-wrap:nowrap" data-act="${v === 'trash' ? 'folder' : 'nav'}" data-v="${v}" data-f="Trash"><span class="ib" style="width:42px;height:42px;border-radius:12px;background:var(--bsoft);color:var(--blue2);display:grid;place-items:center;flex:none">${ic(i)}</span><span class="grow"><b style="display:block">${esc(t)}</b><span class="small" style="color:var(--blue2);font-weight:700">${a} →</span></span></button>`).join('')}</div>` : ''}
+ ${tips.length ? `<div class="grid g2" style="margin-top:16px">${tips.slice(0, 4).map(([i, t, a, v]) => `<button class="card row" style="text-align:left;flex-wrap:nowrap" data-act="${v === 'trash' ? 'folder' : v === 'install' ? 'install' : 'nav'}" data-v="${v}" data-f="Trash"><span class="ib" style="width:42px;height:42px;border-radius:12px;background:var(--bsoft);color:var(--blue2);display:grid;place-items:center;flex:none">${ic(i)}</span><span class="grow"><b style="display:block">${esc(t)}</b><span class="small" style="color:var(--blue2);font-weight:700">${a} →</span></span></button>`).join('')}</div>` : ''}
  <div class="sect"><h2>Sorted for you</h2><button class="btn ghost sm" data-act="nav" data-v="files">All files ${ic('chev', 16)}</button></div>
  ${L.length ? `<div class="cats">${Object.entries(cs).sort((a, b) => b[1].n - a[1].n).map(([k, v]) => { const c = CATS[k] || CATS.Other; return `<button class="cat" data-act="folder" data-f="${esc(k)}"><span class="ib" style="background:${c.c}">${ic(c.ic, 20)}</span><b>${esc(k)}</b><span class="small muted">${v.n} item${v.n > 1 ? 's' : ''} · ${fmtB(v.b)}</span></button>` }).join('')}</div>`
   : `<div class="card empty">${ic('upload', 44)}<h3>Drop anything here to start</h3><p>Photos, PDFs, videos, music, zips, apps — DESk files each one into the right folder and tags it.</p><div class="row" style="justify-content:center;margin-top:14px"><button class="btn pri" data-act="upFiles">${ic('upload', 18)}Upload files</button><button class="btn" data-act="scan">${ic('scan', 18)}Scan a document</button></div></div>`}
@@ -2420,7 +2471,7 @@ VIEWS.clean = () => {
  const selFiles = [...CL.sel].map(byId).filter(Boolean), selB = selFiles.reduce((a, f) => a + f.size, 0);
  const reclaim = [...new Set([...s.dups, ...s.junk, ...s.trash])].reduce((a, f) => a + f.size, 0);
  return `<div class="sect" style="margin-top:6px"><div><h1>Clean up</h1><p class="muted">${fmtB(reclaim)} can be reclaimed safely right now (duplicates, junk and Trash).</p></div><button class="btn pri" data-act="clSmart">${ic('wand', 18)}Smart select</button></div>
- ${selFiles.length ? `<div class="bulk"><b>${selFiles.length} selected · ${fmtB(selB)}</b><span class="grow"></span><button class="btn sm" data-act="clOffload">${ic('devices', 18)}Keep on other devices only</button><button class="btn sm" data-act="clTrash">${ic('trash', 18)}Move to Trash</button><button class="btn sm" data-act="clPurge">${ic('x', 18)}Delete forever</button><button class="btn sm icon" data-act="clNone" aria-label="Clear selection">${ic('x', 18)}</button></div>` : ''}
+ ${selFiles.length ? `<div class="bulk"><b>${selFiles.length} selected · ${fmtB(selB)}</b><span class="grow"></span><button class="btn sm" data-act="clMoveDrive">${ic('hdd', 18)}Move to drive</button><button class="btn sm" data-act="clOffload">${ic('devices', 18)}Keep on other devices only</button><button class="btn sm" data-act="clTrash">${ic('trash', 18)}Move to Trash</button><button class="btn sm" data-act="clPurge">${ic('x', 18)}Delete forever</button><button class="btn sm icon" data-act="clNone" aria-label="Clear selection">${ic('x', 18)}</button></div>` : ''}
  ${clSection('dups', 'copy', 'Duplicates', 'identical content (matched by fingerprint); the oldest copy is kept', s.dups, '', f => { const g = s.dupGroups.find(g => g.includes(f)); return 'copy of ' + esc(g[0].name) })}
  ${clSection('junk', 'warn', 'Junk & empty files', 'temporary downloads, system files and 0-byte files', s.junk)}
  ${clSection('large', 'hdd', 'Large files', 'biggest space users', s.large, `<div class="row" style="margin-top:10px"><span class="small muted">Larger than</span>${[25, 50, 100, 500].map(n => `<button class="chip ${CL.largeMB === n ? 'on' : ''}" data-act="clLarge" data-n="${n}">${n} MB</button>`).join('')}</div>`)}
@@ -2505,6 +2556,130 @@ async function offloadFiles(ids) {
  toast(n ? `Freed ${fmtB(bytes)} — ${n} file${n === 1 ? '' : 's'} kept on your other devices` : 'Those files aren’t on another device yet', n ? '' : 'err'); render();
 }
 
+/* ================= EXTERNAL STORAGE: SD cards, USB flash drives, external disks =================
+ Where the browser supports it (Chrome / Edge / Opera on computers and Chromebooks), you pick a folder
+ on the drive once; DESk remembers it and can save, move, back up and import files there whenever the
+ drive is plugged in. Everywhere else DESk hands files to the system "Save" / share sheet, where you can
+ choose the SD card or USB drive (Android: Files › SD card; iPhone/iPad: Save to Files › your drive). */
+const DR = { list: [], state: {} };
+const fsaOK = () => 'showDirectoryPicker' in window;
+const safeName = n => String(n).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/^\.+/, '_').slice(0, 180) || 'file';
+async function loadDrives() { try { DR.list = (await kvGet('drives', [])) || [] } catch { DR.list = [] } }
+const saveDrives = () => kvSet('drives', DR.list);
+async function driveState(d) {
+ try { const p = await d.handle.queryPermission({ mode: 'readwrite' }); if (p !== 'granted') return DR.state[d.id] = 'ask'; for await (const _ of d.handle.keys()) break; return DR.state[d.id] = 'ok' }
+ catch (e) { return DR.state[d.id] = 'missing' }
+}
+async function drivePerm(d) {
+ try { if (await d.handle.queryPermission({ mode: 'readwrite' }) === 'granted' || await d.handle.requestPermission({ mode: 'readwrite' }) === 'granted') { for await (const _ of d.handle.keys()) break; DR.state[d.id] = 'ok'; return true } }
+ catch (e) { DR.state[d.id] = 'missing'; toast(`${d.name} isn’t connected — plug it in and try again`, 'err'); return false }
+ toast('Permission to use that drive wasn’t given', 'err'); return false;
+}
+async function addDrive() {
+ if (!fsaOK()) return driveHelp();
+ try {
+  const h = await window.showDirectoryPicker({ id: 'desk-drive', mode: 'readwrite' });
+  if (DR.list.some(d => d.name === h.name) && !await ask('Add this folder again?', { body: `A location called <b>${esc(h.name)}</b> is already saved.`, ok: 'Add' })) return;
+  const label = await ask('Name this location', { input: 'Shown in DESk', value: h.name, ok: 'Save' });
+  const d = { id: uid(8), name: (label || h.name).slice(0, 40), folder: h.name, handle: h, added: Date.now(), auto: false, done: {} };
+  DR.list.push(d); await saveDrives(); DR.state[d.id] = 'ok'; toast(`${d.name} added — DESk can now save files there`); render();
+ } catch (e) { if (e && e.name !== 'AbortError') toast('That folder can’t be used: ' + (e.message || e.name), 'err') }
+}
+async function writeFile(dir, relPath, blob) {
+ const parts = relPath.split('/').filter(Boolean).map(safeName); let h = dir;
+ for (const p of parts.slice(0, -1)) h = await h.getDirectoryHandle(p, { create: true });
+ let name = parts[parts.length - 1];
+ try { const ex = await (await h.getFileHandle(name)).getFile(); if (ex.size === blob.size) return { skipped: true, name }; const dot = name.lastIndexOf('.'), base = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : ''; for (let k = 2; k < 999; k++) { const t = `${base} (${k})${ext}`; try { await h.getFileHandle(t) } catch { name = t; break } } } catch { }
+ const fh = await h.getFileHandle(name, { create: true }), w = await fh.createWritable(); await w.write(blob); await w.close();
+ return { name };
+}
+async function pickDrive(title) {
+ const ok = DR.list;
+ if (!ok.length) { await addDrive(); return DR.list[DR.list.length - 1] || null }
+ if (ok.length === 1) return ok[0];
+ return new Promise(res => {
+  const m = modal(`<h3>${esc(title)}</h3><div style="display:grid;gap:8px">${ok.map(d => `<button class="btn wrap" data-act="drPick" data-id="${d.id}">${ic('hdd', 20)}<span><b>${esc(d.name)}</b><br><span class="small muted">${DR.state[d.id] === 'missing' ? 'Not connected' : 'Folder: ' + esc(d.folder)}</span></span></button>`).join('')}
+   <button class="btn ghost" data-act="drPick" data-id="new">${ic('plus', 18)}Another drive or folder…</button></div><div class="row end" style="margin-top:12px"><button class="btn ghost" data-close>Cancel</button></div>`, { onClose: () => res(m._d || null) });
+  m._list = ok;
+ }).then(async d => d === 'new' ? (await addDrive(), DR.list[DR.list.length - 1]) : d);
+}
+ACT.drPick = (d, el) => { const w = el.closest('.mwrap'); w._d = d.id === 'new' ? 'new' : DR.list.find(x => x.id === d.id); w.close() };
+async function saveToDrive(ids, { move = false } = {}) {
+ const recs = ids.map(byId).filter(Boolean); if (!recs.length) return;
+ if (!fsaOK()) return saveViaSystem(recs);
+ const d = await pickDrive(move ? 'Move to which drive?' : 'Save to which drive?'); if (!d || !await drivePerm(d)) return;
+ if (move && !await ask(`Move ${recs.length} item${recs.length > 1 ? 's' : ''} to ${d.name}?`, { body: 'They’re copied to the drive, then removed from DESk on this device to free up space.', ok: 'Move' })) return;
+ const q = upPanel(recs.length); let n = 0, skip = 0, fail = 0, bytes = 0; const moved = [];
+ for (let i = 0; i < recs.length; i++) {
+  const f = recs[i]; q.step(i, f.name);
+  try { const b = await getBlob(f, { wait: true }); if (!b) { fail++; continue } const r = await writeFile(d.handle, 'DESk/' + f.folder + '/' + f.name, b); r.skipped ? skip++ : n++; bytes += f.size; d.done[f.id] = 1; moved.push(f.id) }
+  catch (e) { console.warn(e); fail++; if (e.name === 'NotFoundError' || e.name === 'NotReadableError') { toast(`${d.name} was disconnected`, 'err'); break } if (e.name === 'QuotaExceededError') { toast(`${d.name} is full`, 'err'); break } }
+ }
+ d.lastUsed = Date.now(); await saveDrives();
+ if (move && moved.length) await purgeFiles(moved, true);
+ q.done(`${move ? 'Moved' : 'Saved'} ${n + skip} item${n + skip === 1 ? '' : 's'} to ${d.name}`, [`${fmtB(bytes)} in DESk/…`, skip ? `${skip} already there` : '', fail ? `${fail} failed` : ''].filter(Boolean).join(' · '));
+ S.sel.clear(); render();
+}
+async function saveViaSystem(recs) {
+ // Phones & browsers without folder access: the system save / share sheet lets you pick the SD card or USB drive
+ const blobs = []; for (const f of recs) { const b = await getBlob(f, { wait: true }); if (b) blobs.push(new File([b], f.name, { type: f.type || b.type })) }
+ if (!blobs.length) return toast('Those files aren’t on this device yet', 'err');
+ try { if (navigator.canShare && navigator.canShare({ files: blobs })) { await navigator.share({ files: blobs, title: 'Save to drive' }); return } } catch (e) { if (e.name === 'AbortError') return }
+ if (blobs.length === 1) return saveBlob(blobs[0], blobs[0].name);
+ saveBlob(await makeZip(recs.map((f, i) => ({ name: f.folder.replace(/\//g, ' - ') + '/' + f.name, blob: blobs[i] })).filter(e => e.blob)), `DESk-${new Date().toISOString().slice(0, 10)}.zip`);
+ toast('Choose your SD card or USB drive in the save dialog');
+}
+async function backupToDrive(d) {
+ if (!await drivePerm(d)) return;
+ const L = live().filter(f => !f.offloaded); const q = upPanel(L.length); let n = 0, skip = 0, fail = 0;
+ for (let i = 0; i < L.length; i++) { const f = L[i]; q.step(i, f.name); try { const b = await dbGet('blobs', f.id); if (!b) continue; const r = await writeFile(d.handle, 'DESk/' + f.folder + '/' + f.name, b); r.skipped ? skip++ : n++; d.done[f.id] = 1 } catch (e) { fail++; if (/NotFound|NotReadable|Quota/.test(e.name)) break } }
+ d.lastBackup = Date.now(); await saveDrives();
+ q.done(`Backed up to ${d.name}`, [`${n} copied`, skip ? `${skip} already there` : '', fail ? `${fail} failed` : ''].filter(Boolean).join(' · ')); render();
+}
+async function importFromDrive(d) {
+ if (!await drivePerm(d)) return;
+ let dir = d.handle; try { dir = await d.handle.getDirectoryHandle('DESk') } catch { }
+ const out = [];
+ const walk = async (h, p) => { for await (const [name, e] of h.entries()) { if (out.length >= 5000) return; if (e.kind === 'file') { try { const f = await e.getFile(); try { Object.defineProperty(f, 'webkitRelativePath', { value: p + name }) } catch { } out.push(f) } catch { } } else if (!name.startsWith('.')) await walk(e, p + name + '/') } };
+ toast('Reading ' + d.name + '…'); await walk(dir, '');
+ if (!out.length) return toast('No files found there', 'err');
+ ingest(out);
+}
+async function autoCopy() {
+ for (const d of DR.list.filter(x => x.auto)) {
+  if (await driveState(d) !== 'ok') continue;
+  const todo = live().filter(f => !f.offloaded && !d.done[f.id]); if (!todo.length) continue;
+  let n = 0; for (const f of todo) { try { const b = await dbGet('blobs', f.id); if (!b) continue; await writeFile(d.handle, 'DESk/' + f.folder + '/' + f.name, b); d.done[f.id] = 1; n++ } catch { break } }
+  await saveDrives(); if (n) toast(`Copied ${n} new file${n === 1 ? '' : 's'} to ${d.name}`);
+ }
+}
+function driveHelp() {
+ const ua = navigator.userAgent, ios = /iPhone|iPad|iPod/.test(ua) || (/Mac/.test(ua) && navigator.maxTouchPoints > 1), android = /Android/.test(ua);
+ modal(`<div class="mhead"><h3>Save to an SD card or USB drive</h3><button class="btn icon ghost" data-close aria-label="Close">${ic('x')}</button></div>
+  <p class="muted" style="margin-bottom:12px">This browser can’t keep a drive connected to DESk, but you can still save any file to it:</p>
+  <ol class="steps">${ios ? '<li>Select files in DESk and choose <b>Save to drive</b>.</li><li>In the share sheet tap <b>Save to Files</b>.</li><li>Pick your USB drive or SD card under <b>Locations</b>.</li>' : android ? '<li>Select files in DESk and choose <b>Save to drive</b>.</li><li>Pick <b>Files</b> (or <b>My Files</b>) in the share sheet, or allow the download.</li><li>Choose <b>SD card</b> or your USB drive as the destination.</li><li>Tip: in Chrome settings → Downloads you can turn on <b>Ask where to save files</b>.</li>' : '<li>Select files and choose <b>Save to drive</b>.</li><li>When your browser asks where to save, pick the drive.</li><li>For drives that stay linked to DESk, open DESk in Chrome or Edge on a computer.</li>'}</ol>
+  <div class="row end" style="margin-top:14px"><button class="btn pri" data-close>Got it</button></div>`, { cls: 'mid' });
+}
+function drivesCardHTML() {
+ const rows = DR.list.map(d => { const st = DR.state[d.id]; return `<div class="dev drv"><span class="ib">${ic('hdd', 24)}</span><div><div class="b">${esc(d.name)} <span class="badge ${st === 'ok' ? 'green' : st === 'missing' ? 'red' : ''}">${st === 'ok' ? 'Connected' : st === 'missing' ? 'Not connected' : 'Tap to allow'}</span></div>
+  <div class="small muted">Folder “${esc(d.folder)}” · ${d.lastBackup ? 'backed up ' + ago(d.lastBackup) : d.lastUsed ? 'used ' + ago(d.lastUsed) : 'not used yet'}</div>
+  <label class="sw small" style="min-height:34px"><input type="checkbox" data-drauto="${d.id}" ${d.auto ? 'checked' : ''}>Copy new files automatically when connected</label></div>
+  <div class="row drv-acts" style="gap:6px"><button class="btn sm" data-act="drBackup" data-id="${d.id}">${ic('upload', 16)}Back up</button><button class="btn sm" data-act="drImport" data-id="${d.id}">${ic('download', 16)}Import</button><button class="btn sm ghost" data-act="drForget" data-id="${d.id}">${ic('x', 16)}Forget</button></div></div>` }).join('');
+ return `<div class="card"><h3>External storage</h3><p class="small muted" style="margin-bottom:10px">Save, move and back up files to an SD card, USB flash drive or external disk.${fsaOK() ? ' Add a folder on the drive once — DESk remembers it whenever the drive is plugged in.' : ''}</p>
+  ${rows || ''}${fsaOK() ? `<div class="row" style="margin-top:10px"><button class="btn sm pri" data-act="drAdd">${ic('plus', 16)}Add a drive or folder</button></div>` : `<div class="row"><button class="btn sm" data-act="drHelp">${ic('info', 16)}How to save to a drive on this device</button></div>`}</div>`;
+}
+Object.assign(ACT, {
+ drAdd: () => addDrive(), drHelp: () => driveHelp(),
+ drBackup: d => backupToDrive(DR.list.find(x => x.id === d.id)),
+ drImport: d => importFromDrive(DR.list.find(x => x.id === d.id)),
+ drForget: async d => { const x = DR.list.find(y => y.id === d.id); if (await ask(`Forget ${x.name}?`, { body: 'Files already on the drive stay there.', ok: 'Forget' })) { DR.list = DR.list.filter(y => y.id !== d.id); await saveDrives(); render() } },
+ bDrive: () => saveToDrive([...S.sel]),
+ pvDrive: () => pvState && saveToDrive([pvState.id]),
+ clMoveDrive: () => { const ids = [...CL.sel]; CL.sel.clear(); saveToDrive(ids, { move: true }) }
+});
+document.addEventListener('change', async e => { const id = e.target.dataset && e.target.dataset.drauto; if (!id) return; const d = DR.list.find(x => x.id === id); if (!d) return; if (e.target.checked && !await drivePerm(d)) { e.target.checked = false; return } d.auto = e.target.checked; await saveDrives(); toast(d.auto ? `New files will be copied to ${d.name}` : 'Automatic copying off'); if (d.auto) autoCopy() });
+async function refreshDriveStates() { for (const d of DR.list) await driveState(d); renderIf('prefs') }
+
 /* ================= SPLASH ================= */
 const SPLASH_T0 = performance.now();
 function hideSplash() {
@@ -2522,7 +2697,7 @@ function showLanding() {
  L.innerHTML = `
  <header class="lnav"><a class="lbrand" href="#/" aria-label="DESk">${LOGO(36)}<span>DESk</span></a>
   <nav class="llinks"><a href="#features">Features</a><a href="#scanner">Scanner</a><a href="#sync">Sync</a><a href="#privacy">Privacy</a></nav>
-  <button class="lbtn" data-act="lStart">Open DESk</button></header>
+  ${isStandalone() ? '' : `<button class="lbtn ghost lhide-s" data-act="install">${ic('download', 18)}Install</button>`}<button class="lbtn" data-act="lStart">Open DESk</button></header>
  <section class="lhero" id="top">
   <div class="lgrid" aria-hidden="true"></div><div class="lglow" aria-hidden="true"></div>
   <div class="lfloat" aria-hidden="true">${FLOAT.map(([i, c, n, t], k) => `<div class="fcard f${k}" style="--c:${c}"><span>${ic(i, 18)}</span><div><b>${n}</b><small>→ ${t}</small></div></div>`).join('')}</div>
@@ -2552,7 +2727,7 @@ function showLanding() {
   <div class="syncdemo reveal" aria-hidden="true"><div class="sy-dev">${ic('phone', 40)}<small>Phone</small></div><div class="sy-path"><i></i><i></i><i></i><b>${ic('lock', 14)}</b></div><div class="sy-dev">${ic('laptop', 46)}<small>Laptop</small></div><div class="sy-code">K7M2-Q9XA</div></div></div></section>
  <section class="lsec" id="privacy"><div class="lwrap"><div class="lhead reveal center"><span class="lkick">Private by design</span><h2>Your files live on your devices. Full stop.</h2></div>
   <div class="lfeat three">${[['devices', 'On your device', 'Files, scans and passwords are stored in your browser’s private storage. There’s no DESk server.'], ['shield', 'Encrypted before it moves', 'Sync and share links are encrypted on the device; the relay only ever sees unreadable bytes.'], ['globe', 'Works offline', 'Install it like an app. It opens and works with no internet at all.']].map(([i, t, d]) => `<div class="lf reveal"><span>${ic(i, 22)}</span><h3>${t}</h3><p>${d}</p></div>`).join('')}</div></div></section>
- <section class="lsec tint"><div class="lwrap"><div class="lhead reveal center"><span class="lkick">Install</span><h2>Put DESk on your home screen</h2></div>
+ <section class="lsec tint" id="install"><div class="lwrap"><div class="lhead reveal center"><span class="lkick">Install</span><h2>Put DESk on your home screen</h2>${isStandalone() ? '' : `<button class="lbtn big" style="background:#1A5CFF;color:#fff" data-act="install">${ic('download', 20)}Add to home screen</button>`}</div>
   <div class="lfeat three">${[['phone', 'iPhone & iPad', 'Open in Safari → Share → Add to Home Screen.'], ['phone', 'Android', 'Open in Chrome → menu ⋮ → Install app.'], ['laptop', 'Computer', 'Chrome or Edge → install icon in the address bar.']].map(([i, t, d]) => `<div class="lf reveal"><span>${ic(i, 22)}</span><h3>${t}</h3><p>${d}</p></div>`).join('')}</div></div></section>
  <section class="lfinal"><div class="lwrap reveal">${LOGO(72)}<h2>Clear your desk.</h2><p>Free, private and ready in one tap.</p><button class="lbtn big" data-act="lStart">${ic('right', 20)}Open DESk</button></div></section>
  <footer class="lfoot"><span>${LOGO(22)} DESk ${APP_VERSION}</span><span><a href="#" data-act="showTerms">Privacy & Terms</a> · Hosted on GitHub Pages</span></footer>`;
@@ -2626,19 +2801,20 @@ VIEWS.prefs = () => `<div class="sect" style="margin-top:6px"><h1>Settings</h1><
    <label class="fld"><span>Lock vault and Hidden after</span><select data-set="lockMin">${[1, 2, 5, 10, 15, 30, 60].map(n => `<option value="${n}" ${setting('lockMin') == n ? 'selected' : ''}>${n} minute${n > 1 ? 's' : ''} idle</option>`).join('')}</select></label>
    <label class="sw"><input type="checkbox" data-set="stealth" ${setting('stealth') ? 'checked' : ''}>Stealth mode — remove Hidden from menus (open it by tapping the DESk logo 5 times)</label>
    <div class="row" style="margin-top:12px"><button class="btn sm" data-act="lockAll">${ic('lock', 16)}Lock everything now</button></div></div>
+  ${drivesCardHTML()}
   <div class="card"><h3>Sync your devices</h3><p class="small muted" style="margin-bottom:12px">${linked() ? `Linked with ${listDevices().length - 1} other device${listDevices().length === 2 ? '' : 's'}.` : 'Link your phone and computer with a QR code — no account.'}</p><button class="btn sm pri" data-act="nav" data-v="devices">${ic('devices', 16)}Open Devices</button></div>
   <div class="card"><h3>Backup & data</h3><p class="small muted" style="margin-bottom:12px">Everything is stored on this device in your browser’s private storage${linked() ? ' and synced (encrypted) to your linked devices' : ''}.</p>
    <div class="row"><button class="btn sm" data-act="bundleOut">${ic('download', 16)}Save backup</button><button class="btn sm" data-act="bundleIn">${ic('upload', 16)}Restore backup</button><button class="btn sm" data-act="persist">${ic('shield', 16)}Protect storage</button></div>
    <hr><button class="btn sm danger" data-act="eraseAll">${ic('trash', 16)}Erase this device</button></div>
   <div class="card"><h3>About DESk</h3><div class="row" style="flex-wrap:nowrap;gap:14px">${LOGO(52)}<div><b>DESk ${APP_VERSION}</b><p class="small muted">File manager · document scanner · password vault. Works offline; your files never leave your devices unless you sync or share them, and then only encrypted.</p></div></div>
-   <div class="row" style="margin-top:12px"><button class="btn sm" data-act="tour">${ic('info', 16)}Take the tour</button><button class="btn sm ghost" data-act="showTerms">Privacy & Terms</button>${installEvt ? `<button class="btn sm pri" data-act="install">${ic('download', 16)}Install app</button>` : ''}</div>
+   <div class="row" style="margin-top:12px"><button class="btn sm" data-act="tour">${ic('info', 16)}Take the tour</button><button class="btn sm ghost" data-act="showTerms">Privacy & Terms</button>${isStandalone() ? '' : `<button class="btn sm pri" data-act="install">${ic('download', 16)}Add to home screen</button>`}</div>
    <p class="small muted" style="margin-top:12px">${MEM ? 'This browser blocks offline storage — data is kept only until you close the tab.' : 'Offline storage ready.'}</p></div></div>`;
 function avatarHTML(sz = 20) { const p = S.profile; if (p && safeThumb(p.picture)) return `<img src="${p.picture}" alt="">`; const ch = p && p.username ? p.username.trim()[0].toUpperCase() : ''; return ch ? `<b style="font-size:${sz * .8}px">${esc(ch)}</b>` : ic('id', sz) }
 Object.assign(ACT, {
  saveMe: async () => { const v = $('#meName').value.trim().slice(0, 30); if (!v) return; S.profile = { ...S.profile, username: v, updatedAt: Date.now() }; await kvSet('profile', S.profile); syncSoon(); toast('Saved'); render() },
  clearPic: async (d, el, e) => { e.preventDefault(); S.profile = { ...S.profile, picture: '', updatedAt: Date.now() }; await kvSet('profile', S.profile); syncSoon(); render() },
  tour: () => { location.hash = '#/about'; showLanding() },
- install: async () => { if (!installEvt) return; installEvt.prompt(); try { await installEvt.userChoice } catch { } installEvt = null; render() }
+ install: () => installApp()
 });
 Object.assign(ACT, {
  saveDevName: async () => { const v = $('#devName').value.trim(); if (!v) return; S.deviceName = v.slice(0, 40); S.deviceNameSet = true; await kvSet('deviceName', S.deviceName); if (SY.devices[DEVID()]) editDevice(DEVID(), { name: S.deviceName, auto: false }); toast('Saved'); render() },
@@ -2706,6 +2882,8 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => {
  S.lastAct = Date.now();
  if (e.key === 'Escape') { const m = topModal(); if (m) { if (SC && SC.m === m) ACT.scClose(); else m.close() } return }
+ if (SC && SC.cropping && SC.crop && topModal() === SC.m) { const k = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]; if (k) { e.preventDefault(); SC.crop.nudge(k[0] * (e.shiftKey ? 10 : 2), k[1] * (e.shiftKey ? 10 : 2)); return } if (e.key === 'Tab') { e.preventDefault(); SC.crop.next(); return } if (e.key === 'Enter') { ACT.crApply(); return } }
+ if (SC && !SC.cropping && topModal() === SC.m && SC.pages.length > 1 && !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) { if (e.key === 'ArrowLeft') return ACT.scPrev(); if (e.key === 'ArrowRight') return ACT.scNext() }
  const t = e.target, typing = /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
  if ((e.key === 'Enter' || e.key === ' ') && t.matches('[role=button][data-act]')) { e.preventDefault(); t.click(); return }
  if (e.key === '/' && !typing && !topModal()) { e.preventDefault(); $('#q').focus(); return }
@@ -2791,6 +2969,18 @@ async function autoEmptyTrash() {
  if (old.length) await purgeFiles(old, true);
 }
 let installEvt = null;
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+async function installApp() {
+ if (installEvt) { installEvt.prompt(); try { const c = await installEvt.userChoice; if (c && c.outcome === 'accepted') toast('DESk is being added to your home screen') } catch { } installEvt = null; renderSoon(); return }
+ const ua = navigator.userAgent, ios = /iPhone|iPad|iPod/.test(ua) || (/Mac/.test(ua) && navigator.maxTouchPoints > 1), android = /Android/.test(ua), safari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|Chrome/.test(ua);
+ const shareIc = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-3px"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
+ const steps = ios ? (safari || /CriOS|EdgiOS/.test(ua) ? `<li>Tap the <b>Share</b> button ${shareIc} ${/CriOS|EdgiOS/.test(ua) ? 'in the address bar' : 'at the bottom of Safari'}.</li><li>Scroll down and tap <b>Add to Home Screen</b>.</li><li>Tap <b>Add</b> — DESk appears with its blue paperclip icon.</li>` : '<li>Open this page in <b>Safari</b>.</li><li>Tap <b>Share</b> → <b>Add to Home Screen</b>.</li>')
+  : android ? `<li>Tap the browser menu <b>⋮</b>.</li><li>Tap <b>Install app</b> or <b>Add to Home screen</b>.</li><li>Confirm — DESk opens full-screen like a normal app.</li>`
+  : `<li>Click the install icon at the right of the address bar (Chrome / Edge), or open the browser menu.</li><li>Choose <b>Install DESk</b>.</li>`;
+ modal(`<div style="text-align:center;display:grid;gap:12px;justify-items:center"><img src="icons/icon-192.png" width="84" height="84" alt="" style="border-radius:20px;box-shadow:0 10px 30px rgba(26,92,255,.35)"><h3 style="margin:0">Add DESk to your home screen</h3><p class="muted small">It opens full-screen, works offline and keeps your files on this device.</p></div>
+  <ol class="steps">${steps}</ol><div class="row end" style="margin-top:12px"><button class="btn pri" data-close>Got it</button></div>`, { cls: 'mid' });
+}
+window.addEventListener('appinstalled', () => { installEvt = null; toast('DESk was added to your home screen'); renderSoon() });
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; renderIf('prefs') });
 async function init() {
  $('#sIc').innerHTML = ic('search', 18);
@@ -2801,8 +2991,8 @@ async function init() {
  S.deviceId = await kvGet('deviceId'); if (!S.deviceId) { S.deviceId = uid(12); await kvSet('deviceId', S.deviceId) }
  S.deviceName = await kvGet('deviceName'); S.deviceNameSet = !!S.deviceName; if (!S.deviceName) S.deviceName = autoName();
  S.files = (await dbAll('files').catch(() => [])) || []; S.scans = (await dbAll('scans').catch(() => [])) || [];
- S.vaultRec = await kvGet('vault'); S.hiddenCfgCache = await kvGet('hiddenCfg'); S.profile = await kvGet('profile');
- autoEmptyTrash();
+ await loadDrives(); S.vaultRec = await kvGet('vault'); S.hiddenCfgCache = await kvGet('hiddenCfg'); S.profile = await kvGet('profile');
+ autoEmptyTrash(); setTimeout(() => autoCopy().catch(() => { }), 3000);
  if (S.profile) await restoreSync();
  const r = routeFromHash();
  if (r === 'share' || r === 'join' || r === 'about') handleRoute();
@@ -2815,5 +3005,8 @@ async function init() {
  }
 }
 init().catch(e => { console.error(e); hideSplash(); $('#app').hidden = false; $('#view').innerHTML = `<div class="card empty"><h3>DESk couldn’t start</h3><p>${esc(e.message)}</p></div>` });
+
+let drSig = '';
+AFTER.prefs = async () => { await Promise.all(DR.list.map(driveState)); const sig = JSON.stringify(DR.state); if (sig !== drSig) { drSig = sig; renderIf('prefs') } };
 
 })();
