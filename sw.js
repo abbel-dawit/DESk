@@ -1,7 +1,7 @@
 // DESk service worker — makes the app open and run with no internet.
 // build.py rewrites VERSION every build, so phones pick up updates automatically.
-const VERSION = 'desk-519375a97c';
-const SHELL = ['./', 'index.html', 'css/app.css?v=80df10ac92', 'js/desk.js?v=e664b6adc8', 'js/jsQR.js', 'manifest.webmanifest', 'favicon.ico', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png'];
+const VERSION = 'desk-e19f535271';
+const SHELL = ['./', 'index.html', 'css/app.css?v=e3ad65ca98', 'js/desk.js?v=5fecfae899', 'js/jsQR.js', 'manifest.webmanifest', 'favicon.ico', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting())) });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== VERSION && k !== 'desk-fonts').map(k => caches.delete(k)))).then(() => self.clients.claim())) });
 self.addEventListener('fetch', e => {

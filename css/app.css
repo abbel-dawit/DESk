@@ -240,7 +240,8 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
 .pins{display:flex;gap:12px;justify-content:center;min-height:20px}
 .pins i{width:16px;height:16px;border-radius:50%;border:2px solid var(--blue)}.pins i.f{background:var(--blue)}
 .pad{display:grid;grid-template-columns:repeat(3,76px);gap:12px;justify-content:center}
-.pad button{height:76px;border-radius:50%;border:1px solid var(--line);background:var(--panel);font-size:26px;font-weight:700}
+.pad button{height:76px;border-radius:50%;border:1px solid var(--line);background:var(--panel);font-size:26px;font-weight:700;display:grid;place-items:center;padding:0;line-height:1}
+.pad button .i{display:block;margin:auto}
 .pad button:active{background:var(--bsoft)}
 .fieldv{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:12px;padding:6px 6px 6px 12px;background:var(--panel2);margin-bottom:10px}
 .fieldv .v{flex:1;overflow-wrap:anywhere;font-weight:600}
