@@ -3,7 +3,7 @@
 Files sorted automatically, documents scanned into clean PDFs, passwords encrypted, devices synced with a QR code.
 Everything is stored on the user's own device. No server, no database, no sign-up.
 
-## What's new in 2.5
+## What's new in 2.3
 - **Selecting files**: simple grey rounded checkboxes that fill blue when ticked, and a clean white panel showing the count and size, *Select all*, cancel, and evenly spaced actions with the icon above each label.
 - **Moving many files to Hidden** now moves files one at a time. Each copy is checked before the original is removed, and you see a progress bar plus a "Moved n of N" report.
 - **Preview**: files fit inside a rounded frame. Swipe left or right, use the arrow buttons, or press ← → to go through the list. The Hidden viewer works the same way, with Unhide / Download / Delete centred.
