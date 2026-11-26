@@ -2,7 +2,7 @@
 (() => {
 'use strict';
 /* ================= CORE ================= */
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.5.0';
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -241,7 +241,7 @@ function toast(msg, type = '') {
  $('#toasts').appendChild(t); setTimeout(() => t.remove(), type === 'err' ? 5200 : 3200);
 }
 function modal(html, { cls = '', onClose } = {}) {
- const w = document.createElement('div'); w.className = 'mwrap';
+ const w = document.createElement('div'); w.className = 'mwrap' + (/\bfull\b/.test(cls) ? ' mfull' : '');
  w.innerHTML = `<div class="modal ${cls}" role="dialog" aria-modal="true">${html}</div>`;
  $('#modal-root').appendChild(w);
  let closed = false;
@@ -482,7 +482,7 @@ function classify(name, mime = '', size = 0, extra = {}) {
  if (cat === 'Images') {
   if (/screen ?shot|screenshot|scr_|capture|snip/i.test(base)) { sub = 'Screenshots'; tags.add('screenshot') }
   else if (/whatsapp|telegram|signal|messenger/i.test(base)) { sub = 'Messaging'; tags.add('chat') }
-  else if (/^(img|dsc|pxl|dcim|photo|pic|mvimg|dji)[_-]?\d/i.test(base) || ['heic', 'heif', 'jpg', 'jpeg', 'jfif', 'dng', 'raw', 'cr2', 'nef', 'arw'].includes(ext)) { sub = 'Photos'; tags.add('photo') }
+  else if (/^(img|dsc|pxl|dcim|photo|pic|mvimg|dji)[_-]?\d/i.test(base) || /^(image|photo|picture|img_e\d+|fullsizerender)(\s?\(\d+\)|[-_ ]\d+)?$/i.test(base) || ['heic', 'heif', 'jpg', 'jpeg', 'jfif', 'dng', 'raw', 'cr2', 'nef', 'arw'].includes(ext)) { sub = 'Photos'; tags.add('photo') }
   else sub = 'Graphics';
  } else if (cat === 'Videos') sub = /screen|record/i.test(base) ? 'Screen recordings' : /whatsapp|telegram/i.test(base) ? 'Messaging' : 'Clips';
  else if (cat === 'Audio') sub = /voice|record|memo|ptt|aud-|note/i.test(base) ? 'Voice notes' : 'Music';
@@ -522,7 +522,7 @@ function videoThumb(blob) {
 }
 async function makeThumb(blob, mime) {
  try {
-  if (mime.startsWith('image/') && !/heic|heif|tiff/.test(mime)) { const im = await loadImg(blob); return drawThumb(im, im.naturalWidth || 300, im.naturalHeight || 300) }
+  if (mime.startsWith('image/') && !/tiff/.test(mime)) { const im = await loadImg(blob); return drawThumb(im, im.naturalWidth || 300, im.naturalHeight || 300) }
   if (mime.startsWith('video/') && blob.size < 1.5e9) return await videoThumb(blob);
  } catch { }
  return null;
@@ -549,7 +549,7 @@ async function addFile(blob, o) {
  return rec;
 }
 /* background thumbnails */
-const thumbable = (mime, size) => (mime.startsWith('image/') && !/heic|heif|tiff/.test(mime) && size < 80 * 1048576) || (mime.startsWith('video/') && size < 4e9);
+const thumbable = (mime, size) => (mime.startsWith('image/') && !/tiff/.test(mime) && size < 80 * 1048576) || (mime.startsWith('video/') && size < 4e9);
 const TQ = []; let tqRunning = 0;
 function queueThumb(rec) { TQ.push(rec.id); pumpThumbs() }
 function pumpThumbs() {
@@ -816,6 +816,11 @@ function treeHTML() {
  h += `<div class="lbl">Bin</div>` + btn('Trash', 'Trash', ic('trash', 18), tr || null);
  return h;
 }
+// The white "N selected" panel: count + size, select all / cancel, then an even grid of icon-over-label actions
+function selBar(n, bytes, acts, clearAct, allAct, allOn) {
+ return `<div class="selbar" role="toolbar" aria-label="Selected items"><div class="selhead"><span class="selcount"><b>${n}</b> selected${bytes != null ? ` <span class="muted">· ${fmtB(bytes)}</span>` : ''}</span><span class="grow"></span>${allAct ? `<button class="btn sm ghost" data-act="${allAct}">${allOn ? 'Select none' : 'Select all'}</button>` : ''}<button class="btn sm icon ghost" data-act="${clearAct}" aria-label="Cancel selection" title="Cancel">${ic('x', 18)}</button></div>
+  <div class="selacts" style="--n:${acts.length}">${acts.map(([a, i, l, d]) => `<button class="selact ${d ? 'danger' : ''}" data-act="${a}"><span class="si">${ic(i, 20)}</span><span class="sl">${l}</span></button>`).join('')}</div></div>`;
+}
 function cardHTML(f) {
  const sel = S.sel.has(f.id);
  const flags = [f.fav ? ic('star', 14) : '', f.share ? ic('link', 14) : '', f.offloaded ? ic('clouddown', 14) : ''].filter(Boolean).map(x => `<span>${x}</span>`).join('');
@@ -836,15 +841,14 @@ VIEWS.files = () => {
  const tags = Object.entries(tagCount).sort((a, b) => b[1] - a[1]).slice(0, 16);
  if (S.tag && !tags.some(t => t[0] === S.tag)) tags.unshift([S.tag, 0]);
  const n = S.sel.size;
- const bulk = n ? `<div class="bulk"><b>${n} selected</b><span class="grow"></span>
-   ${trash ? `<button class="btn sm" data-act="bRestore">${ic('restore', 18)}Restore</button><button class="btn sm" data-act="bPurge">${ic('trash', 18)}Delete forever</button>` :
-   `<button class="btn sm" data-act="bDl">${ic('download', 18)}<span class="hide-s">Download</span></button><button class="btn sm" data-act="bMove">${ic('move', 18)}Move</button><button class="btn sm" data-act="bTag">${ic('tag', 18)}Tag</button><button class="btn sm" data-act="bDrive">${ic('hdd', 18)}Save to drive</button><button class="btn sm" data-act="bHide">${ic('lock', 18)}Hide</button><button class="btn sm" data-act="bTrash">${ic('trash', 18)}Delete</button>`}
-   <button class="btn sm icon" data-act="bClear" aria-label="Clear selection">${ic('x', 18)}</button></div>` : '';
+ const selB = [...S.sel].reduce((a, id) => a + ((byId(id) || {}).size || 0), 0), allOn = n && list.every(f => S.sel.has(f.id));
+ const bulk = n ? selBar(n, selB, trash ? [['bRestore', 'restore', 'Restore'], ['bPurge', 'trash', 'Delete forever', 1]] :
+  [['bDl', 'download', 'Download'], ['bMove', 'move', 'Move'], ['bTag', 'tag', 'Tag'], ['bDrive', 'hdd', 'To drive'], ['bHide', 'lock', 'Hide'], ['bTrash', 'trash', 'Delete', 1]], 'bClear', 'bAll', allOn) : '';
  const title = { All: 'All files', Trash: 'Trash', Favorites: 'Favorites', Recent: 'Recent', Shared: 'Shared links', Elsewhere: 'On other devices' }[S.folder] || S.folder.replace(/\//g, ' › ');
  return `<div class="fwrap"><nav class="tree" aria-label="Folders">${treeHTML()}</nav><section>
   ${trash ? `<div class="card" style="margin-bottom:14px"><div class="row between"><span class="muted">Items in Trash are removed after ${setting('autoEmptyDays')} days.</span>${list.length ? `<button class="btn sm danger" data-act="emptyTrash">Empty Trash</button>` : ''}</div></div>` :
    `<div class="drop"><span class="ib">${ic('upload', 24)}</span><div class="grow"><b>Drop files or whole folders here</b><div class="small muted">DESk hashes, sorts and tags every item automatically. Duplicates are skipped.</div></div>
-   <div class="row"><button class="btn pri" data-act="upFiles">${ic('upload', 18)}Upload files</button><button class="btn" data-act="upDir">${ic('folder', 18)}Upload folder</button></div></div>`}
+   <div class="row droprow"><button class="btn pri" data-act="upFiles">${ic('upload', 18)}Upload files</button><button class="btn" data-act="upPhotos">${ic('image', 18)}<span><span class="hide-s">From </span>Photos</span></button><button class="btn" data-act="upDir">${ic('folder', 18)}<span><span class="hide-s">Upload </span>Folder</span></button><button class="btn icon ghost" data-act="photosHelp" aria-label="Uploading from your phone’s Hidden album" title="Uploading from your phone’s Hidden album">${ic('info', 18)}</button></div></div>`}
   <div class="tool"><h2 class="grow">${esc(title)} <span class="muted" style="font-weight:600;font-size:15px">${list.length}</span></h2>
    <select data-in="sort" aria-label="Sort">${[['new', 'Newest'], ['old', 'Oldest'], ['name', 'Name'], ['size', 'Largest'], ['type', 'Type']].map(([k, l]) => `<option value="${k}" ${S.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
    <button class="btn sm ${S.selMode ? 'soft' : ''}" data-act="selMode">${ic('check', 18)}Select</button>
@@ -863,8 +867,10 @@ Object.assign(ACT, {
  selMode: () => { S.selMode = !S.selMode; if (!S.selMode) S.sel.clear(); render() },
  layout: () => { S.layout = S.layout === 'grid' ? 'list' : 'grid'; kvSet('layout', S.layout); render() },
  more: () => { S.limit = (S.limit || 300) + 300; render() },
- upFiles: () => $('#fileIn').click(), upDir: () => $('#dirIn').click(),
+ upFiles: () => $('#fileIn').click(), upDir: () => $('#dirIn').click(), upPhotos: () => $('#photoIn').click(),
+ photosHelp: () => infoModal('Uploading from your phone’s photos', `<h4>iPhone & iPad — including the Hidden album</h4><ol class="steps" style="margin-top:6px"><li>For hidden photos, turn on <b>Settings › Apps › Photos › Show Hidden Album</b>.</li><li>Tap <b>From Photos</b>, then <b>Collections</b> (or <b>Albums</b>) › <b>Hidden</b>, and unlock with Face ID / Touch ID.</li><li>Select photos and videos and tap <b>Add</b> — DESk sorts them into Photos and Clips.</li></ol><p class="small" style="margin-top:8px">Want them to stay private? Add them from <b>Hidden</b> in DESk instead — they’re encrypted and never synced.</p><h4>Android</h4><p>Pick from your gallery or Files. Google Photos’ <b>Locked Folder</b> can’t be opened by any other app (Android blocks it), so move items out first. With DESk installed you can also use <b>Share › DESk</b>.</p>`),
  bClear: () => { S.sel.clear(); S.selMode = false; render() },
+ bAll: () => { const L = viewFiles(), on = L.every(f => S.sel.has(f.id)); if (on) S.sel.clear(); else { L.forEach(f => S.sel.add(f.id)); S.selMode = true } render() },
  bDl: () => downloadFiles([...S.sel]), bMove: () => moveFiles([...S.sel]), bTag: () => tagFiles([...S.sel]),
  bTrash: () => trashFiles([...S.sel]), bRestore: () => restoreFiles([...S.sel]),
  bHide: () => hideFiles([...S.sel]),
@@ -875,30 +881,77 @@ Object.assign(ACT, {
 /* ================= PREVIEW ================= */
 let pvState = null;
 const TEXTY = /^(text\/|application\/(json|xml|javascript))/;
-async function openFile(id) {
+// The list a preview was opened from, so you can swipe / arrow through it
+function previewList(id) {
+ let ids = [];
+ if (S.view === 'files') ids = viewFiles().map(f => f.id);
+ else if (S.view === 'home') ids = live().slice().sort((a, b) => Math.max(b.added, b.opened || 0) - Math.max(a.added, a.opened || 0)).slice(0, 6).map(f => f.id);
+ else if (S.view === 'scan') ids = live().filter(f => f.cat === 'Scans').map(f => f.id);
+ return ids.includes(id) ? ids : [id];
+}
+// Swipe left/right on a preview area (touch, pen or mouse drag)
+function swipeNav(el, go) {
+ let sx = 0, sy = 0, st = 0, on = false, last = 0;
+ const fire = d => { if (Date.now() - last < 400) return; last = Date.now(); go(d) };
+ const ok = (dx, dy, dt) => Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.3 && dt < 900;
+ // skip the bottom strip of a video/audio (its own controls) and scrollable text/pages
+ const skip = e => { if (e.target.closest('button,iframe,audio')) return true; const v = e.target.closest('video'); if (v) { const r = v.getBoundingClientRect(); return e.clientY > r.bottom - 56 } return false };
+ el.addEventListener('pointerdown', e => { on = !skip(e); sx = e.clientX; sy = e.clientY; st = Date.now() });
+ el.addEventListener('pointerup', e => { if (!on) return; on = false; const dx = e.clientX - sx, dy = e.clientY - sy; if (ok(dx, dy, Date.now() - st)) { e.preventDefault(); fire(dx < 0 ? 1 : -1) } });
+ el.addEventListener('pointercancel', () => on = false);
+ // iOS native video controls can swallow pointer events; touch events still arrive
+ let tx = 0, ty = 0, tt = 0; el.addEventListener('touchstart', e => { const t = e.touches[0]; tx = t.clientX; ty = t.clientY; tt = Date.now() }, { passive: true });
+ el.addEventListener('touchend', e => { if (e.target.closest('iframe,audio')) return; const t = e.changedTouches[0], dx = t.clientX - tx, dy = t.clientY - ty; if (ok(dx, dy, Date.now() - tt)) fire(dx < 0 ? 1 : -1) }, { passive: true });
+}
+// Arrow keys flip through the open preview (files or Hidden)
+document.addEventListener('keydown', e => {
+ if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return; if (e.target.closest && e.target.closest('input,textarea,select,[contenteditable]')) return;
+ const d = e.key === 'ArrowRight' ? 1 : -1;
+ if (typeof HV !== 'undefined' && HV && HV.m.isConnected) { e.preventDefault(); hvStep(d) } else if (pvState && pvState.m.isConnected) { e.preventDefault(); pvStep(d) }
+});
+function openFile(id, list) {
  const f = byId(id); if (!f) return;
+ list = list || previewList(id);
+ if (pvState && pvState.m.isConnected) { pvState.list = list; return loadPreview(id) }
+ const m = modal(`<div class="mhead"><h3 id="pvT"></h3><span class="pvcount" id="pvC"></span><button class="btn icon ghost" data-close aria-label="Close">${ic('x')}</button></div>
+  <div class="pv"><div class="pvwrap" id="pvw"><div class="pvm" id="pvm"></div><button class="pvnav l" data-act="pvPrev" aria-label="Previous file">${ic('back', 22)}</button><button class="pvnav r" data-act="pvNext" aria-label="Next file">${ic('chev', 22)}</button></div><aside id="pvi"></aside></div>`,
+  { cls: 'wide pvmodal', onClose: () => { (pvState && pvState.urls || []).forEach(u => URL.revokeObjectURL(u)); pvState = null } });
+ pvState = { id, m, list, urls: [], tok: 0 };
+ swipeNav(m.querySelector('#pvw'), d => pvStep(d));
+ loadPreview(id);
+}
+function pvStep(d) { if (!pvState) return; const L = pvState.list.filter(x => byId(x)), i = L.indexOf(pvState.id); if (i < 0 || L.length < 2) return; const n = L[(i + d + L.length) % L.length]; const box = pvState.m.querySelector('#pvm'); box.classList.remove('slide-l', 'slide-r'); void box.offsetWidth; box.classList.add(d > 0 ? 'slide-l' : 'slide-r'); loadPreview(n) }
+async function loadPreview(id) {
+ const f = byId(id); if (!f || !pvState) return;
+ const tok = ++pvState.tok; pvState.id = id;
+ pvState.urls.forEach(u => URL.revokeObjectURL(u)); pvState.urls = [];
  f.opened = Date.now(); saveRec(f);
- const urls = [];
- const m = modal(`<div class="mhead"><h3>${esc(f.name)}</h3><button class="btn icon ghost" data-close aria-label="Close">${ic('x')}</button></div><div class="pv"><div class="pvm" id="pvm"><span class="muted">Loading…</span></div><aside id="pvi"></aside></div>`, { cls: 'wide', onClose: () => { urls.forEach(u => URL.revokeObjectURL(u)); pvState = null } });
- pvState = { id, m };
+ const m = pvState.m, L = pvState.list.filter(x => byId(x)), i = L.indexOf(id), many = L.length > 1;
+ m.querySelector('#pvT').textContent = f.name;
+ m.querySelector('#pvC').textContent = many ? `${i + 1} / ${L.length}` : '';
+ m.querySelectorAll('.pvnav').forEach(b => b.hidden = !many);
  refreshPreview(id);
  const box = m.querySelector('#pvm');
- if (f.offloaded) box.innerHTML = `<div class="empty">${ic('clouddown', 40)}<h3>Getting it from ${esc(whereIs(f))}…</h3><p>Keep DESk open on that device for a moment. Files arrive encrypted through your sync relay.</p></div>`;
+ box.innerHTML = f.offloaded ? `<div class="empty">${ic('clouddown', 40)}<h3>Getting it from ${esc(whereIs(f))}…</h3><p>Keep DESk open on that device for a moment. Files arrive encrypted through your sync relay.</p></div>` : '<span class="muted">Loading…</span>';
  const blob = await getBlob(f, { wait: true });
- if (!pvState || pvState.id !== id) return;
+ if (!pvState || pvState.tok !== tok) return;
  if (!blob) { box.innerHTML = `<div class="empty">${ic('devices', 40)}<h3>Not on this device yet</h3><p>${f.size > (typeof RELAY_MAX === 'function' ? RELAY_MAX() : 1e9) ? 'This file is too big to send through the sync relay. Download it on ' + esc(whereIs(f)) + ' and share it directly.' : 'Open DESk on ' + esc(whereIs(f)) + ' and it will be sent here automatically.'}</p></div>`; return }
- const u = URL.createObjectURL(blob); urls.push(u);
+ const u = URL.createObjectURL(blob); pvState.urls.push(u);
  const t = f.type || '';
  if (f.scanId) {
   const sc = S.scans.find(s => s.id === f.scanId) || await dbGet('scans', f.scanId);
-  if (sc && sc.pages) { box.innerHTML = '<div class="pages"></div>'; const pg = box.firstChild; sc.pages.forEach(p => { if (p.out) { const pu = URL.createObjectURL(p.out); urls.push(pu); const im = new Image(); im.src = pu; im.alt = 'Scanned page'; pg.appendChild(im) } }); return }
+  if (!pvState || pvState.tok !== tok) return;
+  if (sc && sc.pages) { box.innerHTML = '<div class="pages"></div>'; const pg = box.firstChild; sc.pages.forEach(p => { if (p.out) { const pu = URL.createObjectURL(p.out); pvState.urls.push(pu); const im = new Image(); im.src = pu; im.alt = 'Scanned page'; pg.appendChild(im) } }); return }
  }
- if (t.startsWith('image/')) { box.innerHTML = ''; const im = new Image(); im.alt = f.name; im.src = u; im.onerror = () => box.innerHTML = `<div class="empty">${ic('image', 40)}<h3>This image format can’t be shown here</h3><p>Download it to open it in another app.</p></div>`; box.appendChild(im) }
- else if (t.startsWith('video/')) { box.innerHTML = ''; const v = document.createElement('video'); v.controls = true; v.playsInline = true; v.src = u; box.appendChild(v) }
- else if (t.startsWith('audio/')) { box.innerHTML = `<div style="padding:30px;width:100%;text-align:center"><span style="color:${CATS.Audio.c}">${ic('music', 56)}</span><p class="b" style="margin:12px 0"></p></div>`; box.querySelector('p').textContent = f.name; const a = document.createElement('audio'); a.controls = true; a.src = u; a.style.width = '100%'; box.firstChild.appendChild(a) }
- else if (t === 'application/pdf') { box.innerHTML = ''; const fr = document.createElement('iframe'); fr.src = u; fr.title = f.name; box.appendChild(fr); const n = document.createElement('p'); n.className = 'small muted'; n.style.padding = '8px'; n.textContent = 'If the PDF doesn’t appear, use Download to open it in your PDF app.'; box.parentNode.insertBefore(n, box.nextSibling) }
- else if ((TEXTY.test(t) || EXTMAP[extOf(f.name)] === 'Code' || ['md', 'txt', 'csv', 'log', 'tsv'].includes(extOf(f.name))) && blob.size < 3e6) { const txt = await blob.text(); box.innerHTML = '<pre></pre>'; box.firstChild.textContent = txt }
- else { const c = CATS[f.cat] || CATS.Other; box.innerHTML = `<div class="empty"><span style="color:${c.c}">${ic(c.ic, 56)}</span><h3>No preview for .${esc(extOf(f.name) || 'file')}</h3><p>Download it to open in the right app.</p><button class="btn pri" data-act="pvDl" style="margin-top:14px">${ic('download', 18)}Download</button></div>` }
+ renderMedia(box, blob, u, f.name, t, f.cat);
+}
+async function renderMedia(box, blob, u, name, t, cat) {
+ if (t.startsWith('image/')) { box.innerHTML = ''; const im = new Image(); im.alt = name; im.src = u; im.draggable = false; im.onerror = () => box.innerHTML = `<div class="empty">${ic('image', 40)}<h3>This image format can’t be shown here</h3><p>Download it to open it in another app.</p></div>`; box.appendChild(im) }
+ else if (t.startsWith('video/')) { box.innerHTML = ''; const v = document.createElement('video'); v.controls = true; v.playsInline = true; v.preload = 'metadata'; v.src = u; box.appendChild(v) }
+ else if (t.startsWith('audio/')) { box.innerHTML = `<div class="pvaudio"><span style="color:${CATS.Audio.c}">${ic('music', 56)}</span><p class="b"></p></div>`; box.querySelector('p').textContent = name; const a = document.createElement('audio'); a.controls = true; a.src = u; box.firstChild.appendChild(a) }
+ else if (t === 'application/pdf') { box.innerHTML = ''; const fr = document.createElement('iframe'); fr.src = u; fr.title = name; box.appendChild(fr) }
+ else if ((TEXTY.test(t) || EXTMAP[extOf(name)] === 'Code' || ['md', 'txt', 'csv', 'log', 'tsv'].includes(extOf(name))) && blob.size < 3e6) { const txt = await blob.text(); box.innerHTML = '<pre></pre>'; box.firstChild.textContent = txt }
+ else { const c = CATS[cat] || CATS.Other; box.innerHTML = `<div class="empty"><span style="color:${c.c}">${ic(c.ic, 56)}</span><h3>No preview for .${esc(extOf(name) || 'file')}</h3><p>Download it to open in the right app.</p><button class="btn pri" data-act="pvDl" style="margin-top:14px">${ic('download', 18)}Download</button></div>` }
 }
 function refreshPreview(id) {
  if (!pvState || pvState.id !== id) return;
@@ -924,6 +977,7 @@ function refreshPreview(id) {
 }
 Object.assign(ACT, {
  pvDl: () => pvState && downloadFiles([pvState.id]),
+ pvPrev: () => pvStep(-1), pvNext: () => pvStep(1),
  pvShare: () => pvState && openShare(pvState.id),
  pvFav: () => pvState && toggleFav(pvState.id),
  pvRen: () => pvState && renameFile(pvState.id),
@@ -1019,8 +1073,24 @@ function detectQuad(src, sw, sh) {
   if (!best || score > best.score) best = { q, score };
  }
  if (!best) return null;
- const cx = best.q.reduce((a, p) => a + p[0], 0) / 4, cy = best.q.reduce((a, p) => a + p[1], 0) / 4;
- return best.q.map(p => [(p[0] + (cx - p[0]) * .012) / s, (p[1] + (cy - p[1]) * .012) / s]);
+ // How sure are we this is a page? brightness inside vs outside, corners on the frame edge, shape
+ const q = best.q, inQ = (px, py) => { let c = false; for (let i = 0, j = 3; i < 4; j = i++) { const [xi, yi] = q[i], [xj, yj] = q[j]; if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) c = !c } return c };
+ let si = 0, ni = 0, so = 0, no = 0; for (let y = 1; y < h; y += 3) for (let x0 = 1; x0 < w; x0 += 3) { const v = gr[y * w + x0]; if (inQ(x0, y)) { si += v; ni++ } else { so += v; no++ } }
+ const contrast = ni && no > N / 60 ? Math.abs(si / ni - so / no) : 0;
+ const m = Math.max(2, Math.min(w, h) * .025), edge = q.filter(p => p[0] < m || p[1] < m || p[0] > w - m || p[1] > h - m).length;
+ const sides = q.map((p, i) => Math.hypot(q[(i + 1) % 4][0] - p[0], q[(i + 1) % 4][1] - p[1])), shape = Math.min(...sides) / Math.max(...sides);
+ const cx = q.reduce((a, p) => a + p[0], 0) / 4, cy = q.reduce((a, p) => a + p[1], 0) / 4;
+ const out = q.map(p => [(p[0] + (cx - p[0]) * .012) / s, (p[1] + (cy - p[1]) * .012) / s]);
+ Object.assign(out, { area: qArea(q) / N, contrast, edge, shape, score: best.score });
+ return out;
+}
+// Auto-capture only fires for something that really looks like a page in view
+function autoOK(q) { return !!q && q.area > .12 && q.area < .9 && q.edge < 2 && q.contrast >= 22 && q.shape > .3 }
+function quadMoved(a, b) {
+ if (!a || !b) return true;
+ const c = z => [z.reduce((t, p) => t + p[0], 0) / 4, z.reduce((t, p) => t + p[1], 0) / 4], ca = c(a), cb = c(b);
+ const span = Math.max(...a.map(p => p[0])) - Math.min(...a.map(p => p[0])) || 1;
+ return Math.hypot(ca[0] - cb[0], ca[1] - cb[1]) / span > .25 || Math.abs((a.area || 0) - (b.area || 0)) > .08;
 }
 /* --- perspective correction --- */
 function solve8(A, b) {
@@ -1124,7 +1194,7 @@ const defaultScanName = k => `${k === 'Receipts' ? 'Receipt' : k === 'IDs & Card
 let SC = null;
 function openScanner(opts = {}) {
  if (SC && SC.m) return;
- SC = Object.assign({ pages: [], cur: 0, auto: true, stream: null, timer: 0, smooth: null, stable: 0, cool: 0, editingId: null, name: '', nameTouched: false, kind: null, fmt: 'pdf' }, opts, { m: null });
+ SC = Object.assign({ armed: true, lostSince: 0, lastQ: null, pages: [], cur: 0, auto: true, stream: null, timer: 0, smooth: null, stable: 0, cool: 0, editingId: null, name: '', nameTouched: false, kind: null, fmt: 'pdf' }, opts, { m: null });
  const m = modal('<div id="scBody" class="dark" style="display:flex;flex-direction:column;height:100%"></div>', { cls: 'full', onClose: stopCamera });
  SC.m = m;
  if (opts.review) return showReview();
@@ -1171,25 +1241,31 @@ function loop() {
  const v = SC.video, ov = SC.ov;
  if (v.videoWidth) {
   const vw = v.videoWidth, vh = v.videoHeight;
-  const q = detectQuad(v, vw, vh);
+  const q = detectQuad(v, vw, vh); if (q) SC.lastRaw = q;
   const dpr = devicePixelRatio || 1, cw = ov.clientWidth, ch = ov.clientHeight;
   if (ov.width !== Math.round(cw * dpr)) { ov.width = Math.round(cw * dpr); ov.height = Math.round(ch * dpr) }
   const x = ov.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, cw, ch);
   const sc = Math.min(cw / vw, ch / vh), ox = (cw - vw * sc) / 2, oy = (ch - vh * sc) / 2;
   const msg = $('#scMsg', SC.m); const now = performance.now();
+  // re-arm auto-capture only once the last page has been taken away or moved
+  if (!q) { if (!SC.lostSince) SC.lostSince = now; if (now - SC.lostSince > 700) SC.armed = true }
+  else { SC.lostSince = 0; if (!SC.armed && quadMoved(q, SC.lastQ)) SC.armed = true }
   if (q) {
    let move = 1;
    if (SC.smooth) { move = Math.max(...q.map((p, i) => Math.hypot(p[0] - SC.smooth[i][0], p[1] - SC.smooth[i][1]))) / Math.max(vw, vh); SC.smooth = SC.smooth.map((p, i) => [p[0] * .45 + q[i][0] * .55, p[1] * .45 + q[i][1] * .55]) }
    else SC.smooth = q;
-   if (move < .02) { if (!SC.stable) SC.stable = now } else SC.stable = 0;
+   const good = autoOK(q);
+   if (move < .02 && good) { if (!SC.stable) SC.stable = now } else SC.stable = 0;
    const held = SC.stable ? (now - SC.stable) / 1300 : 0;
    x.beginPath(); SC.smooth.forEach((p, i) => { const X = ox + p[0] * sc, Y = oy + p[1] * sc; i ? x.lineTo(X, Y) : x.moveTo(X, Y) }); x.closePath();
-   x.fillStyle = 'rgba(26,92,255,.22)'; x.fill(); x.lineWidth = 3; x.strokeStyle = '#4d82ff'; x.stroke();
-   SC.smooth.forEach(p => { x.beginPath(); x.arc(ox + p[0] * sc, oy + p[1] * sc, 7, 0, 7); x.fillStyle = '#fff'; x.fill() });
-   if (now < SC.cool) { msg.textContent = `Page ${SC.pages.length} saved — move to the next page`; msg.className = 'scmsg go' }
-   else if (SC.auto && held >= 1) { msg.textContent = 'Capturing…'; capture() }
+   x.setLineDash(good ? [] : [10, 8]); x.fillStyle = good ? 'rgba(26,92,255,.22)' : 'rgba(233,161,0,.12)'; x.fill(); x.lineWidth = 3; x.strokeStyle = good ? '#4d82ff' : '#e9a100'; x.stroke(); x.setLineDash([]);
+   if (good) SC.smooth.forEach(p => { x.beginPath(); x.arc(ox + p[0] * sc, oy + p[1] * sc, 7, 0, 7); x.fillStyle = '#fff'; x.fill() });
+   const hint = q.area <= .12 ? 'Move closer to the page' : (q.area >= .9 || q.edge >= 2) ? 'Move back so the whole page is in view' : q.contrast < 22 ? 'Put the page on a darker surface' : q.shape <= .3 ? 'Hold the phone straight over the page' : '';
+   if (!SC.armed) { msg.textContent = `Page ${SC.pages.length} saved — move to the next page`; msg.className = 'scmsg go' }
+   else if (!good) { msg.textContent = hint || 'Looking for a document…'; msg.className = 'scmsg warn' }
+   else if (SC.auto && held >= 1 && now >= SC.cool) { msg.textContent = 'Capturing…'; capture() }
    else { msg.textContent = SC.auto ? (held > .15 ? 'Hold steady…' : 'Document found') : 'Document found — tap to capture'; msg.className = 'scmsg' + (held > .15 ? ' go' : '') }
-  } else { SC.smooth = null; SC.stable = 0; if (msg) { msg.textContent = now < SC.cool ? `Page ${SC.pages.length} saved — next page?` : 'Looking for a document…'; msg.className = 'scmsg' } }
+  } else { SC.smooth = null; SC.stable = 0; if (msg) { msg.textContent = !SC.armed ? `Page ${SC.pages.length} saved — next page?` : 'Looking for a document…'; msg.className = 'scmsg' } }
  }
  SC.timer = setTimeout(loop, 110);
 }
@@ -1204,7 +1280,7 @@ async function capture() {
   const quad = SC.smooth ? SC.smooth.map(p => [p[0], p[1]]) : null;
   const p = await pageFromCanvas(c);
   if (quad) { const s = p._src.width / c.width; p.quad = quad.map(q => [q[0] * s, q[1] * s]); p.detected = true; await processPage(p) }
-  SC.pages.push(p); SC.cur = SC.pages.length - 1; SC.cool = performance.now() + 2600; SC.stable = 0;
+  SC.pages.push(p); SC.cur = SC.pages.length - 1; SC.cool = performance.now() + 1500; SC.stable = 0; SC.armed = false; SC.lastQ = SC.smooth ? Object.assign(SC.smooth.map(a => [...a]), { area: (SC.lastRaw || {}).area }) : null;
   const btn = SC.m.querySelector('[data-act=scReview]');
   if (btn) { btn.disabled = false; btn.className = 'btn pri'; btn.innerHTML = `<span class="strip"><img src="${p.thumb}" alt=""></span>Done (${SC.pages.length})` }
  } catch (e) { console.error(e); toast('Capture failed', 'err') }
@@ -1702,9 +1778,8 @@ async function setupHidden(kind, secret) {
 }
 async function openHidden(raw) {
  S.hiddenRaw = raw; S.hiddenDK = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
- const recs = await dbAll('hidden'); S.hiddenItems = [];
- for (const r of recs) { try { S.hiddenItems.push({ id: r.id, size: r.size, at: r.at, meta: await decJSON(S.hiddenDK, r.m) }) } catch { } }
- if (HS.pending) { const ids = HS.pending; HS.pending = null; await hideFiles(ids) }
+ await reloadHiddenList();
+ if (HS.pending) { const ids = HS.pending; HS.pending = null; hideFiles(ids) }
 }
 async function unlockHidden(secret) {
  const c = await hiddenCfg(), kek = await deriveKey(secret, unb64(c.salt), c.iter);
@@ -1712,31 +1787,109 @@ async function unlockHidden(secret) {
  await openHidden(raw);
 }
 function lockHidden() { S.hiddenDK = null; S.hiddenRaw = null; S.hiddenItems = null; HS.buf = ''; if (S.view === 'hidden') render() }
-async function hideBlob(blob, meta) {
- const id = uid(), m = await encJSON(S.hiddenDK, meta), b = await aesEnc(S.hiddenDK, await blob.arrayBuffer());
- await dbPut('hidden', id, { id, m, b: { iv: b.iv, ct: b.ct }, size: blob.size, at: Date.now() });
- S.hiddenItems.push({ id, size: blob.size, at: Date.now(), meta });
-}
-async function hideFiles(ids) {
- const cfg = await hiddenCfg();
- if (!cfg || !S.hiddenDK) { HS.pending = ids; toast(cfg ? 'Unlock Hidden to move these files' : 'Set up a PIN or password for Hidden first'); go('hidden'); return }
- let n = 0;
- for (const id of ids) {
-  const f = byId(id); if (!f) continue;
-  const blob = await getBlob(f); if (!blob) { toast(f.name + ' isn’t on this device', 'err'); continue }
-  await hideBlob(blob, { name: f.name, type: f.type, size: f.size, cat: f.cat, folder: f.folder, tags: f.tags, added: f.added, modified: f.modified, thumb: f.thumb, hash: f.hash, scanId: f.scanId });
-  if (typeof tombstone === 'function') await tombstone(id);
-  await dbDel('blobs', id); await dbDel('files', id); S.files = S.files.filter(x => x.id !== id); n++;
+// Big files (long videos from a phone's Hidden album, etc.) are encrypted in 8 MB pieces so they never
+// have to fit in memory at once; each piece has its own random IV.
+const HCHUNK = 8 * 1048576;
+async function hideBlob(blob, meta, onProg) {
+ // keep the key for the whole move, so locking (e.g. leaving the app) mid-way doesn't drop files
+ const dk = S.hiddenDK || HS.moveDK; if (!dk) throw new Error('Hidden is locked');
+ const id = uid(), m = await encJSON(dk, meta);
+ if (blob.size <= 32 * 1048576) {
+  const b = await aesEnc(dk, await blob.arrayBuffer());
+  await dbPut('hidden', id, { id, m, b: { iv: b.iv, ct: b.ct }, size: blob.size, at: Date.now() }); onProg && onProg(blob.size);
+ } else {
+  const n = Math.ceil(blob.size / HCHUNK), ivs = [];
+  try { for (let i = 0; i < n; i++) { const part = await blob.slice(i * HCHUNK, (i + 1) * HCHUNK).arrayBuffer(), e = await aesEnc(dk, part); ivs.push(b64(e.iv)); await dbPut('blobs', `h:${id}:${i}`, new Blob([e.ct])); onProg && onProg(part.byteLength) } }
+  catch (err) { for (let i = 0; i < n; i++) await dbDel('blobs', `h:${id}:${i}`).catch(() => { }); throw err }
+  await dbPut('hidden', id, { id, m, chunks: ivs, size: blob.size, at: Date.now() });
  }
- S.sel.clear(); if (n) toast(`${n} item${n > 1 ? 's' : ''} moved to Hidden and encrypted`); render();
+ S.hiddenItems && S.hiddenItems.push({ id, size: blob.size, at: Date.now(), meta });
 }
-async function hiddenBlob(id) { const r = await dbGet('hidden', id), it = S.hiddenItems.find(x => x.id === id); return new Blob([await aesDec(S.hiddenDK, r.b.iv, r.b.ct)], { type: it.meta.type || '' }) }
+async function deleteHidden(id) { const r = await dbGet('hidden', id); if (r && r.chunks) for (let i = 0; i < r.chunks.length; i++) await dbDel('blobs', `h:${id}:${i}`).catch(() => { }); await dbDel('hidden', id) }
+// Add files straight into Hidden (from Photos — including an iPhone's Hidden album — or any files)
+async function hideIncoming(list) {
+ if (!S.hiddenDK || !list.length) return;
+ HS.moveDK = S.hiddenDK; HS.moving = (HS.moving || 0) + 1;
+ try { return await hideIncomingNow(list) } finally { if (!--HS.moving) HS.moveDK = null }
+}
+async function hideIncomingNow(list) {
+ const need = list.reduce((a, f) => a + f.size, 0), room = await storageRoom();
+ if (room && need > room.free * .97) { modal(`<h3>Not enough space for Hidden</h3><div class="spnums"><div><b>${fmtB(need)}</b><span>Adding</span></div><div><b>${fmtB(room.free)}</b><span>Free</span></div><div class="bad"><b>${fmtB(need - room.free)}</b><span>Too much</span></div></div>${spaceBar(room, need)}<div class="row end" style="margin-top:14px"><button class="btn pri" data-close>OK</button></div>`, { cls: 'mid' }); return }
+ ingesting = true; const q = upPanel(list.length, need); let n = 0, failed = 0;
+ for (const f of list) {
+  if (q.cancelled) break;
+  try {
+   const mime = f.type || guessMime(f.name), c = classify(f.name, mime, f.size, { modified: f.lastModified });
+   const thumb = thumbable(mime, f.size) ? await fastThumb(f, mime).catch(() => null) : null;
+   await hideBlob(f, { name: f.name, type: mime, size: f.size, cat: c.cat, folder: c.folder, tags: c.tags, added: Date.now(), modified: f.lastModified, thumb, hash: await hashBlob(f) });
+   n++;
+  } catch (e) { failed++; if (isQuota(e)) { toast('Storage is full — some items weren’t added', 'err'); break } }
+  q.progress(f.size, f.name);
+ }
+ ingesting = false;
+ q.done(`${n} item${n === 1 ? '' : 's'} added to Hidden`, ['Encrypted on this device' + (failed ? ` · ${failed} failed` : ''), 'never synced'].join(' · ')); render();
+}
+function hiddenPhotosHelp() {
+ const ios = typeof isIOS === 'function' && isIOS(), android = /Android/.test(navigator.userAgent);
+ infoModal('Add from your Photos — including the Hidden album', `${ios || !android ? `<h4>iPhone & iPad</h4><ol class="steps" style="margin-top:6px"><li>Open <b>Settings › Apps › Photos</b> and turn on <b>Show Hidden Album</b>.</li><li>In DESk tap <b>From Photos</b>, then <b>Collections</b> (or <b>Albums</b>) › <b>Hidden</b>.</li><li>Unlock with <b>Face ID / Touch ID</b>, select the photos and videos, and tap <b>Add</b>.</li></ol><p class="small" style="margin-top:8px">Tip: in the picker tap <b>Options</b> and choose <b>Current</b>/<b>Actual size</b> to keep the original quality.</p>` : ''}
+  ${android || !ios ? `<h4>Android</h4><p>Pick from your gallery or Files. Google Photos’ <b>Locked Folder</b> is blocked by Android for every app, so move items out of it first. If DESk is installed, you can also use <b>Share › DESk</b> from your gallery.</p>` : ''}
+  <h4>What happens</h4><p>Items added here are encrypted on this device and never synced. Removing them from your phone’s album afterwards is up to you — DESk can’t change your photo library.</p>`);
+}
+// Moves run one after another (never two at once), every file is handled on its own, and the original
+// is only removed after its encrypted copy is confirmed saved — so a selection of 3 always moves all 3.
+let hideChain = Promise.resolve();
+function hideFiles(ids) { const run = hideChain.then(() => hideFilesNow(ids)); hideChain = run.catch(() => { }); return run }
+async function hideFilesNow(ids) {
+ if (!S.hiddenDK) return hideFilesInner(ids);
+ HS.moveDK = S.hiddenDK; HS.moving = (HS.moving || 0) + 1;
+ try { return await hideFilesInner(ids) } finally { if (!--HS.moving) HS.moveDK = null }
+}
+async function hideFilesInner(ids) {
+ ids = [...new Set(ids)];
+ const cfg = await hiddenCfg();
+ if (!cfg || !S.hiddenDK) { HS.pending = [...new Set([...(HS.pending || []), ...ids])]; toast(cfg ? 'Unlock Hidden to move these files' : 'Set up a PIN or password for Hidden first'); go('hidden'); return }
+ const total = ids.map(byId).filter(Boolean).reduce((a, f) => a + f.size, 0);
+ const q = ids.length > 1 || total > 32 * 1048576 ? upPanel(ids.length, total) : null;
+ let n = 0; const fails = [];
+ for (const id of ids) {
+  const f = byId(id); if (!f) { fails.push(['(removed)', 'no longer in DESk']); continue }
+  if (q && q.cancelled) { fails.push([f.name, 'cancelled']); continue }
+  try {
+   if (f.offloaded) toast(`Getting ${f.name} from ${whereIs(f)}…`);
+   const blob = await getBlob(f, { wait: true }); if (!blob) throw new Error('not on this device yet');
+   const before = new Set(S.hiddenItems.map(x => x.id));
+   await hideBlob(blob, { name: f.name, type: f.type, size: f.size, cat: f.cat, folder: f.folder, tags: f.tags, added: f.added, modified: f.modified, thumb: f.thumb, hash: f.hash, scanId: f.scanId });
+   const added = S.hiddenItems.find(x => !before.has(x.id));
+   if (!added || !(await dbGet('hidden', added.id))) throw new Error('couldn’t be saved');
+   if (typeof tombstone === 'function') await tombstone(id);
+   await dbDel('blobs', id); await dbDel('files', id); S.files = S.files.filter(x => x.id !== id); n++;
+  } catch (e) { console.warn('hide', e); fails.push([f.name, isQuota(e) ? 'storage is full' : (e.message || 'failed')]); if (isQuota(e)) break }
+  q && q.progress(f.size, f.name);
+ }
+ await reloadHiddenList();
+ S.sel.clear(); S.selMode = false;
+ if (q) q.done(`Moved ${n} of ${ids.length} to Hidden`, fails.length ? fails.map(x => `${x[0]}: ${x[1]}`).join(' · ') : 'Encrypted on this device · never synced');
+ if (!fails.length) toast(`${n} item${n === 1 ? '' : 's'} moved to Hidden and encrypted`);
+ else toast(`${n} of ${ids.length} moved — ${fails.length} couldn’t be: ${fails[0][0]} (${fails[0][1]})`, 'err');
+ render();
+}
+async function reloadHiddenList() {
+ if (!S.hiddenDK) return;
+ const recs = await dbAll('hidden'), out = [];
+ for (const r of recs) { try { out.push({ id: r.id, size: r.size, at: r.at, meta: await decJSON(S.hiddenDK, r.m) }) } catch { } }
+ S.hiddenItems = out;
+}
+async function hiddenBlob(id) {
+ const r = await dbGet('hidden', id), it = S.hiddenItems.find(x => x.id === id), type = it.meta.type || '';
+ if (r.chunks) { const parts = []; for (let i = 0; i < r.chunks.length; i++) { const c = await dbGet('blobs', `h:${id}:${i}`); parts.push(await aesDec(S.hiddenDK, unb64(r.chunks[i]), await c.arrayBuffer())) } return new Blob(parts, { type }) }
+ return new Blob([await aesDec(S.hiddenDK, r.b.iv, r.b.ct)], { type });
+}
 async function unhide(id) {
  const it = S.hiddenItems.find(x => x.id === id); if (!it) return;
  const blob = await hiddenBlob(id), mt = it.meta;
  const rec = await addFile(blob, { name: mt.name, type: mt.type, modified: mt.modified, thumb: mt.thumb, hash: mt.hash, scan: mt.scanId });
  if (mt.folder) rec.folder = mt.folder; if (mt.tags) rec.tags = mt.tags; await saveRec(rec);
- await dbDel('hidden', id); S.hiddenItems = S.hiddenItems.filter(x => x.id !== id);
+ await deleteHidden(id); S.hiddenItems = S.hiddenItems.filter(x => x.id !== id);
  toast(`Restored to ${rec.folder}`); render(); syncSoon();
 }
 function pinPad() { return `<div class="pins">${Array.from({ length: Math.max(4, HS.buf.length) }, (_, i) => `<i class="${i < HS.buf.length ? 'f' : ''}"></i>`).join('')}</div>
@@ -1760,19 +1913,24 @@ VIEWS.hidden = () => {
  }
  const items = S.hiddenItems.slice().sort((a, b) => b.at - a.at);
  return `<div class="sect" style="margin-top:6px"><div><h1>Hidden</h1><p class="muted">${items.length} encrypted item${items.length === 1 ? '' : 's'} · ${fmtB(items.reduce((a, b) => a + b.size, 0))}</p></div>
-  <div class="row"><button class="btn" data-act="hChange">${ic('key', 18)}<span class="hide-s">Change ${cfg.kind === 'pin' ? 'PIN' : 'password'}</span></button><button class="btn" data-act="hLock">${ic('lock', 18)}Lock</button><button class="btn pri" data-act="hAdd">${ic('plus', 18)}Add files</button></div></div>
+  <div class="row"><button class="btn" data-act="hChange">${ic('key', 18)}<span class="hide-s">Change ${cfg.kind === 'pin' ? 'PIN' : 'password'}</span></button><button class="btn" data-act="hLock">${ic('lock', 18)}Lock</button><button class="btn" data-act="hAdd">${ic('plus', 18)}Add files</button><button class="btn pri" data-act="hAddPhotos">${ic('image', 18)}From Photos</button></div></div>
+  <button class="card hphotos" data-act="hPhotosHelp"><span class="ib">${ic('image', 20)}</span><span class="grow"><b>Moving photos from your phone’s Hidden album?</b><span class="small muted">iPhone’s picker can show the Hidden album after Face ID — here’s how</span></span>${ic('chev', 18)}</button>
   <div class="card" style="margin-bottom:16px;display:flex;gap:12px;align-items:center"><span style="color:var(--blue2)">${ic('shield', 22)}</span><p class="small muted grow">Hidden files never sync or appear in search. Locks after ${setting('lockMin')} min idle. ${setting('stealth') ? 'Stealth mode is on: open Hidden by tapping the DESk logo 5 times.' : 'Tip: turn on stealth mode in Settings to remove Hidden from the menu.'}</p></div>
   ${items.length ? `<div class="fgrid">${items.map(it => { const f = { ...it.meta, thumb: it.meta.thumb }; return `<div class="fc" data-act="hOpen" data-id="${it.id}" role="button" tabindex="0"><div class="th">${thumbHTML(f, 40)}</div><div class="meta"><div class="nm">${esc(it.meta.name)}</div><div class="sub">${fmtB(it.size)} · hidden ${fmtD(it.at)}</div></div></div>` }).join('')}</div>`
    : `<div class="card empty">${ic('eyeoff', 44)}<h3>Nothing hidden yet</h3><p>Add files here directly, or pick files in the file manager and choose Hide.</p></div>`}`;
 };
 async function pinEnter() {
+ if (HS.busy) return; HS.busy = true;
+ try { await pinEnterNow() } finally { HS.busy = false }
+}
+async function pinEnterNow() {
  const p = HS.buf, err = $('#hErr');
  if (HS.stage === 'unlock') {
   if (Date.now() < HS.until) { err && (err.textContent = `Too many attempts — wait ${Math.ceil((HS.until - Date.now()) / 1000)} s`); HS.buf = ''; return }
-  try { await unlockHidden(p); HS.fail = 0; HS.buf = ''; render() }
+  try { await unlockHidden(p); HS.fail = 0; HS.buf = ''; render(); window.scrollTo(0, 0) }
   catch { HS.fail++; if (HS.fail >= 5) HS.until = Date.now() + 30000 * 2 ** (HS.fail - 5); HS.buf = ''; render(); const e2 = $('#hErr'); e2 && (e2.textContent = 'Wrong PIN' + (HS.fail >= 3 ? ` · ${HS.fail} attempts` : '')) }
  } else if (HS.stage === 'set1') { if (p.length < 4) return toast('Use at least 4 digits', 'err'); HS.first = p; HS.buf = ''; HS.stage = 'set2'; render() }
- else if (HS.stage === 'set2') { if (p !== HS.first) { toast('PINs don’t match — start again', 'err'); HS.stage = 'set1'; HS.buf = ''; return render() } HS.buf = ''; await setupHidden('pin', p); HS.stage = ''; toast('Hidden folder ready'); render() }
+ else if (HS.stage === 'set2') { if (p !== HS.first) { toast('PINs don’t match — start again', 'err'); HS.stage = 'set1'; HS.buf = ''; return render() } HS.buf = ''; await setupHidden('pin', p); HS.stage = ''; toast('Hidden folder ready'); render(); window.scrollTo(0, 0) }
  else if (HS.stage === 'change1') { if (p.length < 4) return toast('Use at least 4 digits', 'err'); HS.first = p; HS.buf = ''; HS.stage = 'change2'; drawChangePad() }
  else if (HS.stage === 'change2') { if (p !== HS.first) { toast('PINs don’t match', 'err'); HS.stage = 'change1'; HS.buf = ''; return drawChangePad() } await rewrapHidden('pin', p); topModal() && topModal().close(); HS.stage = ''; HS.buf = ''; toast('PIN changed') }
 }
@@ -1782,20 +1940,35 @@ async function rewrapHidden(kind, secret) {
  await kvSet('hiddenCfg', cfg); S.hiddenCfgCache = cfg;
 }
 function drawChangePad() { const m = topModal(); if (!m || !m.querySelector('#chPad')) return; m.querySelector('#chT').textContent = HS.stage === 'change2' ? 'Confirm new PIN' : 'Choose a new 4–8 digit PIN'; m.querySelector('#chPad').innerHTML = pinPad() }
+let HV = null;
 function hiddenItemModal(id) {
- const it = S.hiddenItems.find(x => x.id === id); if (!it) return; let url = null;
- const m = modal(`<div class="mhead"><h3>${esc(it.meta.name)}</h3><button class="btn icon ghost" data-close aria-label="Close">${ic('x')}</button></div><div class="pvm" id="hpv"><span class="muted">Decrypting…</span></div>
-  <div class="row" style="margin-top:14px"><button class="btn" data-act="hUnhide" data-id="${id}">${ic('eye', 18)}Unhide</button><button class="btn" data-act="hDl" data-id="${id}">${ic('download', 18)}Download</button><span class="grow"></span><button class="btn danger" data-act="hDel" data-id="${id}">${ic('trash', 18)}Delete</button></div>`, { cls: 'mid', onClose: () => url && URL.revokeObjectURL(url) });
- hiddenBlob(id).then(async b => {
-  const box = m.querySelector('#hpv'), t = it.meta.type || ''; url = URL.createObjectURL(b);
-  if (t.startsWith('image/')) { box.innerHTML = ''; const im = new Image(); im.src = url; im.alt = ''; box.appendChild(im) }
-  else if (t.startsWith('video/')) { box.innerHTML = ''; const v = document.createElement('video'); v.controls = true; v.src = url; box.appendChild(v) }
-  else if (t.startsWith('audio/')) { box.innerHTML = ''; const a = document.createElement('audio'); a.controls = true; a.src = url; box.appendChild(a) }
-  else if (TEXTY.test(t) && b.size < 2e6) { box.innerHTML = '<pre></pre>'; box.firstChild.textContent = await b.text() }
-  else box.innerHTML = `<div class="empty">${ic('file', 44)}<h3>${fmtB(b.size)}</h3><p>Download or unhide to open this file.</p></div>`;
- }).catch(() => m.querySelector('#hpv').innerHTML = '<p class="muted">Couldn’t decrypt this item.</p>');
+ const it = S.hiddenItems.find(x => x.id === id); if (!it) return;
+ if (HV && HV.m.isConnected) return loadHidden(id);
+ const m = modal(`<div class="mhead"><h3 id="hvT"></h3><span class="pvcount" id="hvC"></span><button class="btn icon ghost" data-close aria-label="Close">${ic('x')}</button></div>
+  <div class="pvwrap" id="hvw"><div class="pvm" id="hpv"></div><button class="pvnav l" data-act="hvPrev" aria-label="Previous">${ic('back', 22)}</button><button class="pvnav r" data-act="hvNext" aria-label="Next">${ic('chev', 22)}</button></div>
+  <div class="pvbtns" id="hvB"></div>`, { cls: 'mid pvmodal hidmodal', onClose: () => { if (HV && HV.url) URL.revokeObjectURL(HV.url); HV = null } });
+ HV = { m, id, url: null, tok: 0 };
+ swipeNav(m.querySelector('#hvw'), d => hvStep(d));
+ loadHidden(id);
+}
+function hvStep(d) { if (!HV) return; const L = S.hiddenItems.map(x => x.id), i = L.indexOf(HV.id); if (i < 0 || L.length < 2) return; const box = HV.m.querySelector('#hpv'); box.classList.remove('slide-l', 'slide-r'); void box.offsetWidth; box.classList.add(d > 0 ? 'slide-l' : 'slide-r'); loadHidden(L[(i + d + L.length) % L.length]) }
+async function loadHidden(id) {
+ const it = S.hiddenItems.find(x => x.id === id); if (!it || !HV) return;
+ const tok = ++HV.tok; HV.id = id; if (HV.url) { URL.revokeObjectURL(HV.url); HV.url = null }
+ const m = HV.m, L = S.hiddenItems.map(x => x.id), i = L.indexOf(id), many = L.length > 1;
+ m.querySelector('#hvT').textContent = it.meta.name;
+ m.querySelector('#hvC').textContent = many ? `${i + 1} / ${L.length}` : '';
+ m.querySelectorAll('.pvnav').forEach(b => b.hidden = !many);
+ m.querySelector('#hvB').innerHTML = `<button class="btn" data-act="hUnhide" data-id="${id}">${ic('eye', 18)}<span>Unhide</span></button><button class="btn" data-act="hDl" data-id="${id}">${ic('download', 18)}<span>Download</span></button><button class="btn danger" data-act="hDel" data-id="${id}">${ic('trash', 18)}<span>Delete</span></button>`;
+ const box = m.querySelector('#hpv'); box.innerHTML = '<span class="muted">Decrypting…</span>';
+ try {
+  const b = await hiddenBlob(id); if (!HV || HV.tok !== tok) return;
+  HV.url = URL.createObjectURL(b);
+  await renderMedia(box, b, HV.url, it.meta.name, it.meta.type || '', (classify(it.meta.name, it.meta.type || '') || {}).cat || 'Other');
+ } catch (e) { if (HV && HV.tok === tok) box.innerHTML = '<p class="muted">Couldn’t decrypt this item.</p>' }
 }
 Object.assign(ACT, {
+ hvPrev: () => hvStep(-1), hvNext: () => hvStep(1),
  hKind: d => { HS.kind = d.k; HS.buf = ''; HS.stage = 'set1'; render() },
  pin: d => {
   if (d.k === 'del') HS.buf = HS.buf.slice(0, -1); else if (d.k === 'ok') return pinEnter(); else if (HS.buf.length < 8) HS.buf += d.k;
@@ -1805,10 +1978,12 @@ Object.assign(ACT, {
  },
  hLock: () => lockHidden(),
  hAdd: () => $('#hidIn').click(),
+ hAddPhotos: () => $('#hidPhotoIn').click(),
+ hPhotosHelp: () => hiddenPhotosHelp(),
  hOpen: d => hiddenItemModal(d.id),
  hUnhide: async d => { topModal().close(); await unhide(d.id) },
  hDl: async d => { const it = S.hiddenItems.find(x => x.id === d.id); saveBlob(await hiddenBlob(d.id), it.meta.name) },
- hDel: async d => { if (!await ask('Delete permanently?', { body: 'This hidden file will be destroyed.', ok: 'Delete', danger: true })) return; await dbDel('hidden', d.id); S.hiddenItems = S.hiddenItems.filter(x => x.id !== d.id); $$('#modal-root .mwrap').forEach(w => w.close()); render() },
+ hDel: async d => { if (!await ask('Delete permanently?', { body: 'This hidden file will be destroyed.', ok: 'Delete', danger: true })) return; await deleteHidden(d.id); S.hiddenItems = S.hiddenItems.filter(x => x.id !== d.id); $$('#modal-root .mwrap').forEach(w => w.close()); render() },
  hChange: () => {
   const cfg = S.hiddenCfgCache;
   if (cfg.kind === 'pin') { HS.stage = 'change1'; HS.buf = ''; modal(`<h3 id="chT" style="text-align:center">Choose a new 4–8 digit PIN</h3><div id="chPad" style="display:grid;gap:16px">${pinPad()}</div><div class="row" style="margin-top:18px;justify-content:center"><button class="btn sm" data-act="hSwitchPass">Use a password instead</button><button class="btn ghost" data-close>Cancel</button></div>`, { onClose: () => { HS.stage = ''; HS.buf = '' } }) }
@@ -1817,7 +1992,7 @@ Object.assign(ACT, {
  hSwitchPass: () => { const t = topModal(); t && t.close(); modal(`<h3>New Hidden password</h3><form data-form="hChangePass"><label class="fld"><span>Password</span><input type="password" name="a" required minlength="6" autocomplete="new-password"></label><label class="fld"><span>Confirm</span><input type="password" name="b" required autocomplete="new-password"></label><div class="row end"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn pri">Save</button></div></form>`) },
  hForgot: async () => {
   if (await ask('Reset Hidden?', { body: 'Without the PIN or password the encrypted files can’t be opened. Resetting deletes every hidden file on this device.', input: 'Type DELETE to confirm', ok: 'Reset', danger: true }) !== 'DELETE') return;
-  await dbClear('hidden'); await dbDel('kv', 'hiddenCfg'); S.hiddenCfgCache = null; HS.stage = 'set1'; render(); toast('Hidden folder reset');
+  await dbClear('hidden'); for (const k of await dbKeys('blobs')) if (String(k).startsWith('h:')) await dbDel('blobs', k); await dbDel('kv', 'hiddenCfg'); S.hiddenCfgCache = null; HS.stage = 'set1'; render(); toast('Hidden folder reset');
  }
 });
 Object.assign(FORMS, {
@@ -2618,7 +2793,7 @@ VIEWS.clean = () => {
  const selFiles = [...CL.sel].map(byId).filter(Boolean), selB = selFiles.reduce((a, f) => a + f.size, 0);
  const reclaim = [...new Set([...s.dups, ...s.junk, ...s.trash])].reduce((a, f) => a + f.size, 0);
  return `<div class="sect" style="margin-top:6px"><div><h1>Clean up</h1><p class="muted">${fmtB(reclaim)} can be reclaimed safely right now (duplicates, junk and Trash).</p></div><button class="btn pri" data-act="clSmart">${ic('wand', 18)}Smart select</button></div>
- ${selFiles.length ? `<div class="bulk"><b>${selFiles.length} selected · ${fmtB(selB)}</b><span class="grow"></span><button class="btn sm" data-act="clMoveDrive">${ic('hdd', 18)}Move to drive</button><button class="btn sm" data-act="clOffload">${ic('devices', 18)}Keep on other devices only</button><button class="btn sm" data-act="clTrash">${ic('trash', 18)}Move to Trash</button><button class="btn sm" data-act="clPurge">${ic('x', 18)}Delete forever</button><button class="btn sm icon" data-act="clNone" aria-label="Clear selection">${ic('x', 18)}</button></div>` : ''}
+ ${selFiles.length ? selBar(selFiles.length, selB, [['clMoveDrive', 'hdd', 'To drive'], ['clOffload', 'devices', 'Other devices only'], ['clTrash', 'trash', 'Trash'], ['clPurge', 'x', 'Delete forever', 1]], 'clNone') : ''}
  ${clSection('dups', 'copy', 'Duplicates', 'identical content (matched by fingerprint); the oldest copy is kept', s.dups, '', f => { const g = s.dupGroups.find(g => g.includes(f)); return 'copy of ' + esc(g[0].name) })}
  ${clSection('junk', 'warn', 'Junk & empty files', 'temporary downloads, system files and 0-byte files', s.junk)}
  ${clSection('large', 'hdd', 'Large files', 'biggest space users', s.large, `<div class="row" style="margin-top:10px"><span class="small muted">Larger than</span>${[25, 50, 100, 500].map(n => `<button class="chip ${CL.largeMB === n ? 'on' : ''}" data-act="clLarge" data-n="${n}">${n} MB</button>`).join('')}</div>`)}
@@ -3019,7 +3194,7 @@ async function startProfile(name) {
  await kvSet('profile', S.profile);
  $('#onboarding').hidden = true;
  location.hash = '#/home';
- await restoreSync(); showApp();
+ await restoreSync(); showApp(); setTimeout(takeShared, 800);
 }
 Object.assign(ACT, {
  obGo: async () => {
@@ -3127,6 +3302,7 @@ function routeFromHash() {
  const h = decodeURIComponent(location.hash.replace(/^#\/?/, '')), parts = h.split('/'); let m;
  if (parts[0] === 's' && parts[1] && parts[2]) { S.share = { id: parts[1], key: parts[2] }; return 'share' }
  if ((parts[0] === 'link' || parts[0] === 'c') && parts[1]) { S.pendingJoin = parts[0] === 'link' ? { secret: parts[1] } : { code: parts[1] }; return 'join' }
+ if (parts[0] === 'shared') return 'shared';
  if (parts[0] === 'about' || parts[0] === '') return parts[0] === 'about' ? 'about' : '';
  const v = parts[0] === 'settings' ? 'prefs' : parts[0];
  if (VIEWS[v] && v !== 'share') { S.view = v; return 'view' }
@@ -3174,13 +3350,9 @@ $('#fileIn').addEventListener('change', e => { ingest(e.target.files); e.target.
 $('#dirIn').addEventListener('change', e => { ingest(e.target.files); e.target.value = '' });
 $('#camIn').addEventListener('change', e => { const f = [...e.target.files]; e.target.value = ''; if (f.length) addImagePages(f) });
 $('#imgIn').addEventListener('change', e => { const f = [...e.target.files]; e.target.value = ''; if (f.length) addImagePages(f) });
-$('#hidIn').addEventListener('change', async e => {
- const list = [...e.target.files]; e.target.value = ''; if (!S.hiddenDK) return;
- const need = list.reduce((a, f) => a + f.size, 0), room = await storageRoom();
- if (room && need > room.free * .97) { modal(`<h3>Not enough space for Hidden</h3><div class="spnums"><div><b>${fmtB(need)}</b><span>Adding</span></div><div><b>${fmtB(room.free)}</b><span>Free</span></div><div class="bad"><b>${fmtB(need - room.free)}</b><span>Too much</span></div></div>${spaceBar(room, need)}<div class="row end" style="margin-top:14px"><button class="btn pri" data-close>OK</button></div>`, { cls: 'mid' }); return }
- for (const f of list) { const mime = f.type || guessMime(f.name), c = classify(f.name, mime, f.size, { modified: f.lastModified }); await hideBlob(f, { name: f.name, type: mime, size: f.size, cat: c.cat, folder: c.folder, tags: c.tags, added: Date.now(), modified: f.lastModified, thumb: await makeThumb(f, mime), hash: await hashBlob(f) }) }
- toast(`${list.length} item${list.length > 1 ? 's' : ''} added to Hidden`); render();
-});
+$('#hidPhotoIn').addEventListener('change', e => { const l = [...e.target.files]; e.target.value = ''; hideIncoming(l) });
+$('#photoIn').addEventListener('change', e => { const l = [...e.target.files]; e.target.value = ''; ingest(l) });
+$('#hidIn').addEventListener('change', async e => { const l = [...e.target.files]; e.target.value = ''; hideIncoming(l) });
 $('#anyIn').addEventListener('change', async e => {
  const f = e.target.files[0]; const tgt = importTarget; importTarget = null; e.target.value = ''; e.target.removeAttribute('capture'); if (!f) return;
  if (tgt === 'csv') importCSV(f);
@@ -3210,7 +3382,17 @@ let pickerUntil = 0, lockedOnLeave = false;
 document.addEventListener('click', e => { if (e.target && e.target.type === 'file') pickerUntil = Date.now() + 120000 }, true);
 document.addEventListener('change', e => { if (e.target && e.target.type === 'file') setTimeout(() => { pickerUntil = 0 }, 1500) }, true);
 window.addEventListener('focus', () => { if (pickerUntil) setTimeout(() => { pickerUntil = 0 }, 1500) });
-function lockOnLeave() { if (Date.now() < pickerUntil || (SC && SC.m)) return; if (S.vault || S.hiddenDK) { if (S.vault) lockVault(); if (S.hiddenDK) lockHidden(); lockedOnLeave = true } }
+// Leaving the tab, switching apps or locking the phone: close anything showing Hidden or Vault
+// content, lock both, and (if you were in Hidden or the Vault) go back to Home.
+function lockOnLeave() {
+ if (Date.now() < pickerUntil || (SC && SC.m)) return;
+ const inSecret = S.view === 'hidden' || S.view === 'vault' || (typeof HV !== 'undefined' && HV);
+ if (!(S.vault || S.hiddenDK || inSecret)) return;
+ if (inSecret) { $$('#modal-root .mwrap').forEach(w => w.close()); HS.buf = '' }
+ if (S.vault) lockVault(); if (S.hiddenDK) lockHidden();
+ if (inSecret) { try { history.replaceState(null, '', '#/home') } catch { } go('home') }
+ lockedOnLeave = true;
+}
 document.addEventListener('visibilitychange', () => { if (document.hidden) { hiddenAt = Date.now(); lockOnLeave() } else { if (lockedOnLeave) { lockedOnLeave = false; toast('Vault and Hidden locked while you were away') } } });
 window.addEventListener('pagehide', lockOnLeave);
 function autoLock() { const had = S.vault || S.hiddenDK; if (S.vault) lockVault(); if (S.hiddenDK) lockHidden(); if (had) toast('Locked after inactivity') }
@@ -3221,6 +3403,7 @@ function handleRoute() {
  const r = routeFromHash();
  if (r === 'share') { $('#landing').hidden = true; $('#onboarding').hidden = true; $('#app').hidden = false; document.body.classList.remove('on-landing'); S.view = 'share'; render(); return }
  if (r === 'join') { const j = S.pendingJoin; S.pendingJoin = null; if (!S.profile) return welcome(j); try { history.replaceState(null, '', '#/devices') } catch { } showApp(); go('devices'); joinFlow(j); return }
+ if (r === 'shared') { try { history.replaceState(null, '', '#/files') } catch { } if (!S.profile) return welcome(); S.view = 'files'; S.folder = 'All'; showApp(); takeShared(); return }
  if (r === 'about') return showLanding();
  if (!S.profile) return showLanding();
  if (r === 'view') { if ($('#app').hidden) showApp(); else render() }
@@ -3236,6 +3419,17 @@ async function autoEmptyTrash() {
  const d = setting('autoEmptyDays'); if (!d) return;
  const old = S.files.filter(f => f.trashed && Date.now() - f.trashed > d * 864e5).map(f => f.id);
  if (old.length) await purgeFiles(old, true);
+}
+// Files shared into DESk from other apps (Android share sheet) wait in a cache until DESk opens
+async function takeShared() {
+ if (!('caches' in window)) return;
+ try {
+  const c = await caches.open('desk-share'), keys = await c.keys(); if (!keys.length) return;
+  const files = [];
+  for (const k of keys) { const r = await c.match(k); if (!r) continue; const b = await r.blob(); files.push(new File([b], decodeURIComponent(r.headers.get('x-name') || 'shared-file'), { type: r.headers.get('content-type') || b.type, lastModified: +r.headers.get('x-mod') || Date.now() })) }
+  for (const k of keys) await c.delete(k);
+  if (files.length) { toast(`Received ${files.length} shared item${files.length > 1 ? 's' : ''}`); ingest(files) }
+ } catch (e) { console.warn('share-in', e) }
 }
 let installEvt = null;
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -3278,7 +3472,8 @@ async function init() {
  autoEmptyTrash(); setTimeout(() => autoCopy().catch(() => { }), 3000);
  if (S.profile) await restoreSync();
  const r = routeFromHash();
- if (r === 'share' || r === 'join' || r === 'about') handleRoute();
+ if (r === 'share' || r === 'join' || r === 'about' || r === 'shared') handleRoute();
+ else if (S.profile) setTimeout(takeShared, 800);
  else if (!S.profile) showLanding();
  else showApp();
  if ('serviceWorker' in navigator && ONLINE_APP()) {

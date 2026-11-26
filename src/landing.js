@@ -190,7 +190,7 @@ async function startProfile(name) {
  await kvSet('profile', S.profile);
  $('#onboarding').hidden = true;
  location.hash = '#/home';
- await restoreSync(); showApp();
+ await restoreSync(); showApp(); setTimeout(takeShared, 800);
 }
 Object.assign(ACT, {
  obGo: async () => {

@@ -6,6 +6,17 @@ self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c 
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== VERSION && k !== 'desk-fonts').map(k => caches.delete(k)))).then(() => self.clients.claim())) });
 self.addEventListener('fetch', e => {
   const req = e.request, url = new URL(req.url);
+  // Android "Share › DESk": keep the shared files for the app to pick up, then open it
+  if (req.method === 'POST' && url.pathname.endsWith('/share-target')) {
+    e.respondWith((async () => {
+      try {
+        const fd = await req.formData(), c = await caches.open('desk-share'); let i = 0;
+        for (const f of fd.getAll('files')) { if (!f || typeof f === 'string') continue; await c.put(new Request(`share/${Date.now()}-${i++}`), new Response(f, { headers: { 'content-type': f.type || 'application/octet-stream', 'x-name': encodeURIComponent(f.name || 'shared-file'), 'x-mod': String(f.lastModified || Date.now()) } })) }
+      } catch (err) { }
+      return Response.redirect('./#/shared', 303);
+    })());
+    return;
+  }
   if (req.method !== 'GET') return;
   // Fonts: cache after first use so the app looks right offline
   if (/fonts\.(googleapis|gstatic)\.com$/.test(url.hostname)) {

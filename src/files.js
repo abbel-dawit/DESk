@@ -46,7 +46,7 @@ function classify(name, mime = '', size = 0, extra = {}) {
  if (cat === 'Images') {
   if (/screen ?shot|screenshot|scr_|capture|snip/i.test(base)) { sub = 'Screenshots'; tags.add('screenshot') }
   else if (/whatsapp|telegram|signal|messenger/i.test(base)) { sub = 'Messaging'; tags.add('chat') }
-  else if (/^(img|dsc|pxl|dcim|photo|pic|mvimg|dji)[_-]?\d/i.test(base) || ['heic', 'heif', 'jpg', 'jpeg', 'jfif', 'dng', 'raw', 'cr2', 'nef', 'arw'].includes(ext)) { sub = 'Photos'; tags.add('photo') }
+  else if (/^(img|dsc|pxl|dcim|photo|pic|mvimg|dji)[_-]?\d/i.test(base) || /^(image|photo|picture|img_e\d+|fullsizerender)(\s?\(\d+\)|[-_ ]\d+)?$/i.test(base) || ['heic', 'heif', 'jpg', 'jpeg', 'jfif', 'dng', 'raw', 'cr2', 'nef', 'arw'].includes(ext)) { sub = 'Photos'; tags.add('photo') }
   else sub = 'Graphics';
  } else if (cat === 'Videos') sub = /screen|record/i.test(base) ? 'Screen recordings' : /whatsapp|telegram/i.test(base) ? 'Messaging' : 'Clips';
  else if (cat === 'Audio') sub = /voice|record|memo|ptt|aud-|note/i.test(base) ? 'Voice notes' : 'Music';
@@ -86,7 +86,7 @@ function videoThumb(blob) {
 }
 async function makeThumb(blob, mime) {
  try {
-  if (mime.startsWith('image/') && !/heic|heif|tiff/.test(mime)) { const im = await loadImg(blob); return drawThumb(im, im.naturalWidth || 300, im.naturalHeight || 300) }
+  if (mime.startsWith('image/') && !/tiff/.test(mime)) { const im = await loadImg(blob); return drawThumb(im, im.naturalWidth || 300, im.naturalHeight || 300) }
   if (mime.startsWith('video/') && blob.size < 1.5e9) return await videoThumb(blob);
  } catch { }
  return null;
@@ -113,7 +113,7 @@ async function addFile(blob, o) {
  return rec;
 }
 /* background thumbnails */
-const thumbable = (mime, size) => (mime.startsWith('image/') && !/heic|heif|tiff/.test(mime) && size < 80 * 1048576) || (mime.startsWith('video/') && size < 4e9);
+const thumbable = (mime, size) => (mime.startsWith('image/') && !/tiff/.test(mime) && size < 80 * 1048576) || (mime.startsWith('video/') && size < 4e9);
 const TQ = []; let tqRunning = 0;
 function queueThumb(rec) { TQ.push(rec.id); pumpThumbs() }
 function pumpThumbs() {
@@ -380,6 +380,11 @@ function treeHTML() {
  h += `<div class="lbl">Bin</div>` + btn('Trash', 'Trash', ic('trash', 18), tr || null);
  return h;
 }
+// The white "N selected" panel: count + size, select all / cancel, then an even grid of icon-over-label actions
+function selBar(n, bytes, acts, clearAct, allAct, allOn) {
+ return `<div class="selbar" role="toolbar" aria-label="Selected items"><div class="selhead"><span class="selcount"><b>${n}</b> selected${bytes != null ? ` <span class="muted">· ${fmtB(bytes)}</span>` : ''}</span><span class="grow"></span>${allAct ? `<button class="btn sm ghost" data-act="${allAct}">${allOn ? 'Select none' : 'Select all'}</button>` : ''}<button class="btn sm icon ghost" data-act="${clearAct}" aria-label="Cancel selection" title="Cancel">${ic('x', 18)}</button></div>
+  <div class="selacts" style="--n:${acts.length}">${acts.map(([a, i, l, d]) => `<button class="selact ${d ? 'danger' : ''}" data-act="${a}"><span class="si">${ic(i, 20)}</span><span class="sl">${l}</span></button>`).join('')}</div></div>`;
+}
 function cardHTML(f) {
  const sel = S.sel.has(f.id);
  const flags = [f.fav ? ic('star', 14) : '', f.share ? ic('link', 14) : '', f.offloaded ? ic('clouddown', 14) : ''].filter(Boolean).map(x => `<span>${x}</span>`).join('');
@@ -400,15 +405,14 @@ VIEWS.files = () => {
  const tags = Object.entries(tagCount).sort((a, b) => b[1] - a[1]).slice(0, 16);
  if (S.tag && !tags.some(t => t[0] === S.tag)) tags.unshift([S.tag, 0]);
  const n = S.sel.size;
- const bulk = n ? `<div class="bulk"><b>${n} selected</b><span class="grow"></span>
-   ${trash ? `<button class="btn sm" data-act="bRestore">${ic('restore', 18)}Restore</button><button class="btn sm" data-act="bPurge">${ic('trash', 18)}Delete forever</button>` :
-   `<button class="btn sm" data-act="bDl">${ic('download', 18)}<span class="hide-s">Download</span></button><button class="btn sm" data-act="bMove">${ic('move', 18)}Move</button><button class="btn sm" data-act="bTag">${ic('tag', 18)}Tag</button><button class="btn sm" data-act="bDrive">${ic('hdd', 18)}Save to drive</button><button class="btn sm" data-act="bHide">${ic('lock', 18)}Hide</button><button class="btn sm" data-act="bTrash">${ic('trash', 18)}Delete</button>`}
-   <button class="btn sm icon" data-act="bClear" aria-label="Clear selection">${ic('x', 18)}</button></div>` : '';
+ const selB = [...S.sel].reduce((a, id) => a + ((byId(id) || {}).size || 0), 0), allOn = n && list.every(f => S.sel.has(f.id));
+ const bulk = n ? selBar(n, selB, trash ? [['bRestore', 'restore', 'Restore'], ['bPurge', 'trash', 'Delete forever', 1]] :
+  [['bDl', 'download', 'Download'], ['bMove', 'move', 'Move'], ['bTag', 'tag', 'Tag'], ['bDrive', 'hdd', 'To drive'], ['bHide', 'lock', 'Hide'], ['bTrash', 'trash', 'Delete', 1]], 'bClear', 'bAll', allOn) : '';
  const title = { All: 'All files', Trash: 'Trash', Favorites: 'Favorites', Recent: 'Recent', Shared: 'Shared links', Elsewhere: 'On other devices' }[S.folder] || S.folder.replace(/\//g, ' › ');
  return `<div class="fwrap"><nav class="tree" aria-label="Folders">${treeHTML()}</nav><section>
   ${trash ? `<div class="card" style="margin-bottom:14px"><div class="row between"><span class="muted">Items in Trash are removed after ${setting('autoEmptyDays')} days.</span>${list.length ? `<button class="btn sm danger" data-act="emptyTrash">Empty Trash</button>` : ''}</div></div>` :
    `<div class="drop"><span class="ib">${ic('upload', 24)}</span><div class="grow"><b>Drop files or whole folders here</b><div class="small muted">DESk hashes, sorts and tags every item automatically. Duplicates are skipped.</div></div>
-   <div class="row"><button class="btn pri" data-act="upFiles">${ic('upload', 18)}Upload files</button><button class="btn" data-act="upDir">${ic('folder', 18)}Upload folder</button></div></div>`}
+   <div class="row droprow"><button class="btn pri" data-act="upFiles">${ic('upload', 18)}Upload files</button><button class="btn" data-act="upPhotos">${ic('image', 18)}<span><span class="hide-s">From </span>Photos</span></button><button class="btn" data-act="upDir">${ic('folder', 18)}<span><span class="hide-s">Upload </span>Folder</span></button><button class="btn icon ghost" data-act="photosHelp" aria-label="Uploading from your phone’s Hidden album" title="Uploading from your phone’s Hidden album">${ic('info', 18)}</button></div></div>`}
   <div class="tool"><h2 class="grow">${esc(title)} <span class="muted" style="font-weight:600;font-size:15px">${list.length}</span></h2>
    <select data-in="sort" aria-label="Sort">${[['new', 'Newest'], ['old', 'Oldest'], ['name', 'Name'], ['size', 'Largest'], ['type', 'Type']].map(([k, l]) => `<option value="${k}" ${S.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
    <button class="btn sm ${S.selMode ? 'soft' : ''}" data-act="selMode">${ic('check', 18)}Select</button>
@@ -427,8 +431,10 @@ Object.assign(ACT, {
  selMode: () => { S.selMode = !S.selMode; if (!S.selMode) S.sel.clear(); render() },
  layout: () => { S.layout = S.layout === 'grid' ? 'list' : 'grid'; kvSet('layout', S.layout); render() },
  more: () => { S.limit = (S.limit || 300) + 300; render() },
- upFiles: () => $('#fileIn').click(), upDir: () => $('#dirIn').click(),
+ upFiles: () => $('#fileIn').click(), upDir: () => $('#dirIn').click(), upPhotos: () => $('#photoIn').click(),
+ photosHelp: () => infoModal('Uploading from your phone’s photos', `<h4>iPhone & iPad — including the Hidden album</h4><ol class="steps" style="margin-top:6px"><li>For hidden photos, turn on <b>Settings › Apps › Photos › Show Hidden Album</b>.</li><li>Tap <b>From Photos</b>, then <b>Collections</b> (or <b>Albums</b>) › <b>Hidden</b>, and unlock with Face ID / Touch ID.</li><li>Select photos and videos and tap <b>Add</b> — DESk sorts them into Photos and Clips.</li></ol><p class="small" style="margin-top:8px">Want them to stay private? Add them from <b>Hidden</b> in DESk instead — they’re encrypted and never synced.</p><h4>Android</h4><p>Pick from your gallery or Files. Google Photos’ <b>Locked Folder</b> can’t be opened by any other app (Android blocks it), so move items out first. With DESk installed you can also use <b>Share › DESk</b>.</p>`),
  bClear: () => { S.sel.clear(); S.selMode = false; render() },
+ bAll: () => { const L = viewFiles(), on = L.every(f => S.sel.has(f.id)); if (on) S.sel.clear(); else { L.forEach(f => S.sel.add(f.id)); S.selMode = true } render() },
  bDl: () => downloadFiles([...S.sel]), bMove: () => moveFiles([...S.sel]), bTag: () => tagFiles([...S.sel]),
  bTrash: () => trashFiles([...S.sel]), bRestore: () => restoreFiles([...S.sel]),
  bHide: () => hideFiles([...S.sel]),
@@ -439,30 +445,77 @@ Object.assign(ACT, {
 /* ================= PREVIEW ================= */
 let pvState = null;
 const TEXTY = /^(text\/|application\/(json|xml|javascript))/;
-async function openFile(id) {
+// The list a preview was opened from, so you can swipe / arrow through it
+function previewList(id) {
+ let ids = [];
+ if (S.view === 'files') ids = viewFiles().map(f => f.id);
+ else if (S.view === 'home') ids = live().slice().sort((a, b) => Math.max(b.added, b.opened || 0) - Math.max(a.added, a.opened || 0)).slice(0, 6).map(f => f.id);
+ else if (S.view === 'scan') ids = live().filter(f => f.cat === 'Scans').map(f => f.id);
+ return ids.includes(id) ? ids : [id];
+}
+// Swipe left/right on a preview area (touch, pen or mouse drag)
+function swipeNav(el, go) {
+ let sx = 0, sy = 0, st = 0, on = false, last = 0;
+ const fire = d => { if (Date.now() - last < 400) return; last = Date.now(); go(d) };
+ const ok = (dx, dy, dt) => Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.3 && dt < 900;
+ // skip the bottom strip of a video/audio (its own controls) and scrollable text/pages
+ const skip = e => { if (e.target.closest('button,iframe,audio')) return true; const v = e.target.closest('video'); if (v) { const r = v.getBoundingClientRect(); return e.clientY > r.bottom - 56 } return false };
+ el.addEventListener('pointerdown', e => { on = !skip(e); sx = e.clientX; sy = e.clientY; st = Date.now() });
+ el.addEventListener('pointerup', e => { if (!on) return; on = false; const dx = e.clientX - sx, dy = e.clientY - sy; if (ok(dx, dy, Date.now() - st)) { e.preventDefault(); fire(dx < 0 ? 1 : -1) } });
+ el.addEventListener('pointercancel', () => on = false);
+ // iOS native video controls can swallow pointer events; touch events still arrive
+ let tx = 0, ty = 0, tt = 0; el.addEventListener('touchstart', e => { const t = e.touches[0]; tx = t.clientX; ty = t.clientY; tt = Date.now() }, { passive: true });
+ el.addEventListener('touchend', e => { if (e.target.closest('iframe,audio')) return; const t = e.changedTouches[0], dx = t.clientX - tx, dy = t.clientY - ty; if (ok(dx, dy, Date.now() - tt)) fire(dx < 0 ? 1 : -1) }, { passive: true });
+}
+// Arrow keys flip through the open preview (files or Hidden)
+document.addEventListener('keydown', e => {
+ if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return; if (e.target.closest && e.target.closest('input,textarea,select,[contenteditable]')) return;
+ const d = e.key === 'ArrowRight' ? 1 : -1;
+ if (typeof HV !== 'undefined' && HV && HV.m.isConnected) { e.preventDefault(); hvStep(d) } else if (pvState && pvState.m.isConnected) { e.preventDefault(); pvStep(d) }
+});
+function openFile(id, list) {
  const f = byId(id); if (!f) return;
+ list = list || previewList(id);
+ if (pvState && pvState.m.isConnected) { pvState.list = list; return loadPreview(id) }
+ const m = modal(`<div class="mhead"><h3 id="pvT"></h3><span class="pvcount" id="pvC"></span><button class="btn icon ghost" data-close aria-label="Close">${ic('x')}</button></div>
+  <div class="pv"><div class="pvwrap" id="pvw"><div class="pvm" id="pvm"></div><button class="pvnav l" data-act="pvPrev" aria-label="Previous file">${ic('back', 22)}</button><button class="pvnav r" data-act="pvNext" aria-label="Next file">${ic('chev', 22)}</button></div><aside id="pvi"></aside></div>`,
+  { cls: 'wide pvmodal', onClose: () => { (pvState && pvState.urls || []).forEach(u => URL.revokeObjectURL(u)); pvState = null } });
+ pvState = { id, m, list, urls: [], tok: 0 };
+ swipeNav(m.querySelector('#pvw'), d => pvStep(d));
+ loadPreview(id);
+}
+function pvStep(d) { if (!pvState) return; const L = pvState.list.filter(x => byId(x)), i = L.indexOf(pvState.id); if (i < 0 || L.length < 2) return; const n = L[(i + d + L.length) % L.length]; const box = pvState.m.querySelector('#pvm'); box.classList.remove('slide-l', 'slide-r'); void box.offsetWidth; box.classList.add(d > 0 ? 'slide-l' : 'slide-r'); loadPreview(n) }
+async function loadPreview(id) {
+ const f = byId(id); if (!f || !pvState) return;
+ const tok = ++pvState.tok; pvState.id = id;
+ pvState.urls.forEach(u => URL.revokeObjectURL(u)); pvState.urls = [];
  f.opened = Date.now(); saveRec(f);
- const urls = [];
- const m = modal(`<div class="mhead"><h3>${esc(f.name)}</h3><button class="btn icon ghost" data-close aria-label="Close">${ic('x')}</button></div><div class="pv"><div class="pvm" id="pvm"><span class="muted">Loading…</span></div><aside id="pvi"></aside></div>`, { cls: 'wide', onClose: () => { urls.forEach(u => URL.revokeObjectURL(u)); pvState = null } });
- pvState = { id, m };
+ const m = pvState.m, L = pvState.list.filter(x => byId(x)), i = L.indexOf(id), many = L.length > 1;
+ m.querySelector('#pvT').textContent = f.name;
+ m.querySelector('#pvC').textContent = many ? `${i + 1} / ${L.length}` : '';
+ m.querySelectorAll('.pvnav').forEach(b => b.hidden = !many);
  refreshPreview(id);
  const box = m.querySelector('#pvm');
- if (f.offloaded) box.innerHTML = `<div class="empty">${ic('clouddown', 40)}<h3>Getting it from ${esc(whereIs(f))}…</h3><p>Keep DESk open on that device for a moment. Files arrive encrypted through your sync relay.</p></div>`;
+ box.innerHTML = f.offloaded ? `<div class="empty">${ic('clouddown', 40)}<h3>Getting it from ${esc(whereIs(f))}…</h3><p>Keep DESk open on that device for a moment. Files arrive encrypted through your sync relay.</p></div>` : '<span class="muted">Loading…</span>';
  const blob = await getBlob(f, { wait: true });
- if (!pvState || pvState.id !== id) return;
+ if (!pvState || pvState.tok !== tok) return;
  if (!blob) { box.innerHTML = `<div class="empty">${ic('devices', 40)}<h3>Not on this device yet</h3><p>${f.size > (typeof RELAY_MAX === 'function' ? RELAY_MAX() : 1e9) ? 'This file is too big to send through the sync relay. Download it on ' + esc(whereIs(f)) + ' and share it directly.' : 'Open DESk on ' + esc(whereIs(f)) + ' and it will be sent here automatically.'}</p></div>`; return }
- const u = URL.createObjectURL(blob); urls.push(u);
+ const u = URL.createObjectURL(blob); pvState.urls.push(u);
  const t = f.type || '';
  if (f.scanId) {
   const sc = S.scans.find(s => s.id === f.scanId) || await dbGet('scans', f.scanId);
-  if (sc && sc.pages) { box.innerHTML = '<div class="pages"></div>'; const pg = box.firstChild; sc.pages.forEach(p => { if (p.out) { const pu = URL.createObjectURL(p.out); urls.push(pu); const im = new Image(); im.src = pu; im.alt = 'Scanned page'; pg.appendChild(im) } }); return }
+  if (!pvState || pvState.tok !== tok) return;
+  if (sc && sc.pages) { box.innerHTML = '<div class="pages"></div>'; const pg = box.firstChild; sc.pages.forEach(p => { if (p.out) { const pu = URL.createObjectURL(p.out); pvState.urls.push(pu); const im = new Image(); im.src = pu; im.alt = 'Scanned page'; pg.appendChild(im) } }); return }
  }
- if (t.startsWith('image/')) { box.innerHTML = ''; const im = new Image(); im.alt = f.name; im.src = u; im.onerror = () => box.innerHTML = `<div class="empty">${ic('image', 40)}<h3>This image format can’t be shown here</h3><p>Download it to open it in another app.</p></div>`; box.appendChild(im) }
- else if (t.startsWith('video/')) { box.innerHTML = ''; const v = document.createElement('video'); v.controls = true; v.playsInline = true; v.src = u; box.appendChild(v) }
- else if (t.startsWith('audio/')) { box.innerHTML = `<div style="padding:30px;width:100%;text-align:center"><span style="color:${CATS.Audio.c}">${ic('music', 56)}</span><p class="b" style="margin:12px 0"></p></div>`; box.querySelector('p').textContent = f.name; const a = document.createElement('audio'); a.controls = true; a.src = u; a.style.width = '100%'; box.firstChild.appendChild(a) }
- else if (t === 'application/pdf') { box.innerHTML = ''; const fr = document.createElement('iframe'); fr.src = u; fr.title = f.name; box.appendChild(fr); const n = document.createElement('p'); n.className = 'small muted'; n.style.padding = '8px'; n.textContent = 'If the PDF doesn’t appear, use Download to open it in your PDF app.'; box.parentNode.insertBefore(n, box.nextSibling) }
- else if ((TEXTY.test(t) || EXTMAP[extOf(f.name)] === 'Code' || ['md', 'txt', 'csv', 'log', 'tsv'].includes(extOf(f.name))) && blob.size < 3e6) { const txt = await blob.text(); box.innerHTML = '<pre></pre>'; box.firstChild.textContent = txt }
- else { const c = CATS[f.cat] || CATS.Other; box.innerHTML = `<div class="empty"><span style="color:${c.c}">${ic(c.ic, 56)}</span><h3>No preview for .${esc(extOf(f.name) || 'file')}</h3><p>Download it to open in the right app.</p><button class="btn pri" data-act="pvDl" style="margin-top:14px">${ic('download', 18)}Download</button></div>` }
+ renderMedia(box, blob, u, f.name, t, f.cat);
+}
+async function renderMedia(box, blob, u, name, t, cat) {
+ if (t.startsWith('image/')) { box.innerHTML = ''; const im = new Image(); im.alt = name; im.src = u; im.draggable = false; im.onerror = () => box.innerHTML = `<div class="empty">${ic('image', 40)}<h3>This image format can’t be shown here</h3><p>Download it to open it in another app.</p></div>`; box.appendChild(im) }
+ else if (t.startsWith('video/')) { box.innerHTML = ''; const v = document.createElement('video'); v.controls = true; v.playsInline = true; v.preload = 'metadata'; v.src = u; box.appendChild(v) }
+ else if (t.startsWith('audio/')) { box.innerHTML = `<div class="pvaudio"><span style="color:${CATS.Audio.c}">${ic('music', 56)}</span><p class="b"></p></div>`; box.querySelector('p').textContent = name; const a = document.createElement('audio'); a.controls = true; a.src = u; box.firstChild.appendChild(a) }
+ else if (t === 'application/pdf') { box.innerHTML = ''; const fr = document.createElement('iframe'); fr.src = u; fr.title = name; box.appendChild(fr) }
+ else if ((TEXTY.test(t) || EXTMAP[extOf(name)] === 'Code' || ['md', 'txt', 'csv', 'log', 'tsv'].includes(extOf(name))) && blob.size < 3e6) { const txt = await blob.text(); box.innerHTML = '<pre></pre>'; box.firstChild.textContent = txt }
+ else { const c = CATS[cat] || CATS.Other; box.innerHTML = `<div class="empty"><span style="color:${c.c}">${ic(c.ic, 56)}</span><h3>No preview for .${esc(extOf(name) || 'file')}</h3><p>Download it to open in the right app.</p><button class="btn pri" data-act="pvDl" style="margin-top:14px">${ic('download', 18)}Download</button></div>` }
 }
 function refreshPreview(id) {
  if (!pvState || pvState.id !== id) return;
@@ -488,6 +541,7 @@ function refreshPreview(id) {
 }
 Object.assign(ACT, {
  pvDl: () => pvState && downloadFiles([pvState.id]),
+ pvPrev: () => pvStep(-1), pvNext: () => pvStep(1),
  pvShare: () => pvState && openShare(pvState.id),
  pvFav: () => pvState && toggleFav(pvState.id),
  pvRen: () => pvState && renameFile(pvState.id),

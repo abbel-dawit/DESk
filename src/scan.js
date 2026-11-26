@@ -82,8 +82,24 @@ function detectQuad(src, sw, sh) {
   if (!best || score > best.score) best = { q, score };
  }
  if (!best) return null;
- const cx = best.q.reduce((a, p) => a + p[0], 0) / 4, cy = best.q.reduce((a, p) => a + p[1], 0) / 4;
- return best.q.map(p => [(p[0] + (cx - p[0]) * .012) / s, (p[1] + (cy - p[1]) * .012) / s]);
+ // How sure are we this is a page? brightness inside vs outside, corners on the frame edge, shape
+ const q = best.q, inQ = (px, py) => { let c = false; for (let i = 0, j = 3; i < 4; j = i++) { const [xi, yi] = q[i], [xj, yj] = q[j]; if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) c = !c } return c };
+ let si = 0, ni = 0, so = 0, no = 0; for (let y = 1; y < h; y += 3) for (let x0 = 1; x0 < w; x0 += 3) { const v = gr[y * w + x0]; if (inQ(x0, y)) { si += v; ni++ } else { so += v; no++ } }
+ const contrast = ni && no > N / 60 ? Math.abs(si / ni - so / no) : 0;
+ const m = Math.max(2, Math.min(w, h) * .025), edge = q.filter(p => p[0] < m || p[1] < m || p[0] > w - m || p[1] > h - m).length;
+ const sides = q.map((p, i) => Math.hypot(q[(i + 1) % 4][0] - p[0], q[(i + 1) % 4][1] - p[1])), shape = Math.min(...sides) / Math.max(...sides);
+ const cx = q.reduce((a, p) => a + p[0], 0) / 4, cy = q.reduce((a, p) => a + p[1], 0) / 4;
+ const out = q.map(p => [(p[0] + (cx - p[0]) * .012) / s, (p[1] + (cy - p[1]) * .012) / s]);
+ Object.assign(out, { area: qArea(q) / N, contrast, edge, shape, score: best.score });
+ return out;
+}
+// Auto-capture only fires for something that really looks like a page in view
+function autoOK(q) { return !!q && q.area > .12 && q.area < .9 && q.edge < 2 && q.contrast >= 22 && q.shape > .3 }
+function quadMoved(a, b) {
+ if (!a || !b) return true;
+ const c = z => [z.reduce((t, p) => t + p[0], 0) / 4, z.reduce((t, p) => t + p[1], 0) / 4], ca = c(a), cb = c(b);
+ const span = Math.max(...a.map(p => p[0])) - Math.min(...a.map(p => p[0])) || 1;
+ return Math.hypot(ca[0] - cb[0], ca[1] - cb[1]) / span > .25 || Math.abs((a.area || 0) - (b.area || 0)) > .08;
 }
 /* --- perspective correction --- */
 function solve8(A, b) {
@@ -187,7 +203,7 @@ const defaultScanName = k => `${k === 'Receipts' ? 'Receipt' : k === 'IDs & Card
 let SC = null;
 function openScanner(opts = {}) {
  if (SC && SC.m) return;
- SC = Object.assign({ pages: [], cur: 0, auto: true, stream: null, timer: 0, smooth: null, stable: 0, cool: 0, editingId: null, name: '', nameTouched: false, kind: null, fmt: 'pdf' }, opts, { m: null });
+ SC = Object.assign({ armed: true, lostSince: 0, lastQ: null, pages: [], cur: 0, auto: true, stream: null, timer: 0, smooth: null, stable: 0, cool: 0, editingId: null, name: '', nameTouched: false, kind: null, fmt: 'pdf' }, opts, { m: null });
  const m = modal('<div id="scBody" class="dark" style="display:flex;flex-direction:column;height:100%"></div>', { cls: 'full', onClose: stopCamera });
  SC.m = m;
  if (opts.review) return showReview();
@@ -234,25 +250,31 @@ function loop() {
  const v = SC.video, ov = SC.ov;
  if (v.videoWidth) {
   const vw = v.videoWidth, vh = v.videoHeight;
-  const q = detectQuad(v, vw, vh);
+  const q = detectQuad(v, vw, vh); if (q) SC.lastRaw = q;
   const dpr = devicePixelRatio || 1, cw = ov.clientWidth, ch = ov.clientHeight;
   if (ov.width !== Math.round(cw * dpr)) { ov.width = Math.round(cw * dpr); ov.height = Math.round(ch * dpr) }
   const x = ov.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, cw, ch);
   const sc = Math.min(cw / vw, ch / vh), ox = (cw - vw * sc) / 2, oy = (ch - vh * sc) / 2;
   const msg = $('#scMsg', SC.m); const now = performance.now();
+  // re-arm auto-capture only once the last page has been taken away or moved
+  if (!q) { if (!SC.lostSince) SC.lostSince = now; if (now - SC.lostSince > 700) SC.armed = true }
+  else { SC.lostSince = 0; if (!SC.armed && quadMoved(q, SC.lastQ)) SC.armed = true }
   if (q) {
    let move = 1;
    if (SC.smooth) { move = Math.max(...q.map((p, i) => Math.hypot(p[0] - SC.smooth[i][0], p[1] - SC.smooth[i][1]))) / Math.max(vw, vh); SC.smooth = SC.smooth.map((p, i) => [p[0] * .45 + q[i][0] * .55, p[1] * .45 + q[i][1] * .55]) }
    else SC.smooth = q;
-   if (move < .02) { if (!SC.stable) SC.stable = now } else SC.stable = 0;
+   const good = autoOK(q);
+   if (move < .02 && good) { if (!SC.stable) SC.stable = now } else SC.stable = 0;
    const held = SC.stable ? (now - SC.stable) / 1300 : 0;
    x.beginPath(); SC.smooth.forEach((p, i) => { const X = ox + p[0] * sc, Y = oy + p[1] * sc; i ? x.lineTo(X, Y) : x.moveTo(X, Y) }); x.closePath();
-   x.fillStyle = 'rgba(26,92,255,.22)'; x.fill(); x.lineWidth = 3; x.strokeStyle = '#4d82ff'; x.stroke();
-   SC.smooth.forEach(p => { x.beginPath(); x.arc(ox + p[0] * sc, oy + p[1] * sc, 7, 0, 7); x.fillStyle = '#fff'; x.fill() });
-   if (now < SC.cool) { msg.textContent = `Page ${SC.pages.length} saved — move to the next page`; msg.className = 'scmsg go' }
-   else if (SC.auto && held >= 1) { msg.textContent = 'Capturing…'; capture() }
+   x.setLineDash(good ? [] : [10, 8]); x.fillStyle = good ? 'rgba(26,92,255,.22)' : 'rgba(233,161,0,.12)'; x.fill(); x.lineWidth = 3; x.strokeStyle = good ? '#4d82ff' : '#e9a100'; x.stroke(); x.setLineDash([]);
+   if (good) SC.smooth.forEach(p => { x.beginPath(); x.arc(ox + p[0] * sc, oy + p[1] * sc, 7, 0, 7); x.fillStyle = '#fff'; x.fill() });
+   const hint = q.area <= .12 ? 'Move closer to the page' : (q.area >= .9 || q.edge >= 2) ? 'Move back so the whole page is in view' : q.contrast < 22 ? 'Put the page on a darker surface' : q.shape <= .3 ? 'Hold the phone straight over the page' : '';
+   if (!SC.armed) { msg.textContent = `Page ${SC.pages.length} saved — move to the next page`; msg.className = 'scmsg go' }
+   else if (!good) { msg.textContent = hint || 'Looking for a document…'; msg.className = 'scmsg warn' }
+   else if (SC.auto && held >= 1 && now >= SC.cool) { msg.textContent = 'Capturing…'; capture() }
    else { msg.textContent = SC.auto ? (held > .15 ? 'Hold steady…' : 'Document found') : 'Document found — tap to capture'; msg.className = 'scmsg' + (held > .15 ? ' go' : '') }
-  } else { SC.smooth = null; SC.stable = 0; if (msg) { msg.textContent = now < SC.cool ? `Page ${SC.pages.length} saved — next page?` : 'Looking for a document…'; msg.className = 'scmsg' } }
+  } else { SC.smooth = null; SC.stable = 0; if (msg) { msg.textContent = !SC.armed ? `Page ${SC.pages.length} saved — next page?` : 'Looking for a document…'; msg.className = 'scmsg' } }
  }
  SC.timer = setTimeout(loop, 110);
 }
@@ -267,7 +289,7 @@ async function capture() {
   const quad = SC.smooth ? SC.smooth.map(p => [p[0], p[1]]) : null;
   const p = await pageFromCanvas(c);
   if (quad) { const s = p._src.width / c.width; p.quad = quad.map(q => [q[0] * s, q[1] * s]); p.detected = true; await processPage(p) }
-  SC.pages.push(p); SC.cur = SC.pages.length - 1; SC.cool = performance.now() + 2600; SC.stable = 0;
+  SC.pages.push(p); SC.cur = SC.pages.length - 1; SC.cool = performance.now() + 1500; SC.stable = 0; SC.armed = false; SC.lastQ = SC.smooth ? Object.assign(SC.smooth.map(a => [...a]), { area: (SC.lastRaw || {}).area }) : null;
   const btn = SC.m.querySelector('[data-act=scReview]');
   if (btn) { btn.disabled = false; btn.className = 'btn pri'; btn.innerHTML = `<span class="strip"><img src="${p.thumb}" alt=""></span>Done (${SC.pages.length})` }
  } catch (e) { console.error(e); toast('Capture failed', 'err') }

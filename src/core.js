@@ -1,6 +1,6 @@
 'use strict';
 /* ================= CORE ================= */
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.5.0';
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -239,7 +239,7 @@ function toast(msg, type = '') {
  $('#toasts').appendChild(t); setTimeout(() => t.remove(), type === 'err' ? 5200 : 3200);
 }
 function modal(html, { cls = '', onClose } = {}) {
- const w = document.createElement('div'); w.className = 'mwrap';
+ const w = document.createElement('div'); w.className = 'mwrap' + (/\bfull\b/.test(cls) ? ' mfull' : '');
  w.innerHTML = `<div class="modal ${cls}" role="dialog" aria-modal="true">${html}</div>`;
  $('#modal-root').appendChild(w);
  let closed = false;

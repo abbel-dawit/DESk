@@ -3,6 +3,13 @@
 Files sorted automatically, documents scanned into clean PDFs, passwords encrypted, devices synced with a QR code.
 Everything is stored on the user's own device. No server, no database, no sign-up.
 
+## What's new in 2.5
+- **Selecting files**: simple grey rounded checkboxes that fill blue when ticked, and a clean white panel showing the count and size, *Select all*, cancel, and evenly spaced actions with the icon above each label.
+- **Moving many files to Hidden** now moves files one at a time. Each copy is checked before the original is removed, and you see a progress bar plus a "Moved n of N" report.
+- **Preview**: files fit inside a rounded frame. Swipe left or right, use the arrow buttons, or press ← → to go through the list. The Hidden viewer works the same way, with Unhide / Download / Delete centred.
+- **Hidden closes when you leave**: switching tabs or apps, or locking the phone, closes what's open, locks Hidden and the Vault, and takes you back to Home.
+- **Scanner**: the camera screen fits any phone, down to iPhone SE / 7 size. Auto capture only fires once a real page is in view, then waits until you move to the next page.
+
 ## Put it online with GitHub Pages (free)
 
 1. Create a new **public** repository on GitHub (e.g. `desk`).
@@ -20,6 +27,7 @@ You can double-click `index.html` to try it on your computer, but sync, share li
 - **Appearance**: *Settings → Appearance* — System (default), Light or Dark, remembered per device.
 - **Locks**: the password vault and Hidden lock the moment you leave the tab or app, and after the idle time you choose.
 - **Big uploads**: files are fingerprinted and stored 4 at a time; big files are fingerprinted from samples (not read in full), and thumbnails are made in the background. Progress shows speed, time left and a Cancel button. Before an upload starts DESk compares it with the free space the browser gives it; if it's too big you see exactly how much too big (and which file), with options to add what fits, save to an SD card / USB drive, or free up space. If storage fills up part-way, DESk stops cleanly and lists what didn't fit.
+- **Phone photos, including the iPhone Hidden album**: *From Photos* (Files and Hidden) opens the system photo picker. On iPhone/iPad, turn on *Settings › Apps › Photos › Show Hidden Album*; the picker then shows *Hidden* after Face ID / Touch ID. Big videos going into DESk's Hidden folder are encrypted in 8 MB pieces so they never need to fit in memory. On Android, Google Photos' Locked Folder is blocked by Android for all apps; installed DESk appears in the **Share** menu so you can send files straight in.
 - **Everything local**: files, scans, hidden items, the vault and settings live in the browser's IndexedDB. *Settings → Erase this device* wipes it.
 - **Sync your devices (no account)** — the same model as BAZINGA!: *Devices → Link a device* shows a QR code, a link and an 8-character short code (works once for 15 minutes; short link `…/#/c/K7M2Q9XA`). Scan / open / type it on another phone, computer or browser and they stay in sync. Rename, pause or remove any device; *Stop syncing this device*; *Turn off sync everywhere*.
 - **Share links**: any file up to 15 MB becomes a short encrypted link + QR code (`…/#/s/<id>/<key>`). The key is only in the part after `#`, which browsers never send to a server.

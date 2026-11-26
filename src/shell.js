@@ -89,6 +89,7 @@ function routeFromHash() {
  const h = decodeURIComponent(location.hash.replace(/^#\/?/, '')), parts = h.split('/'); let m;
  if (parts[0] === 's' && parts[1] && parts[2]) { S.share = { id: parts[1], key: parts[2] }; return 'share' }
  if ((parts[0] === 'link' || parts[0] === 'c') && parts[1]) { S.pendingJoin = parts[0] === 'link' ? { secret: parts[1] } : { code: parts[1] }; return 'join' }
+ if (parts[0] === 'shared') return 'shared';
  if (parts[0] === 'about' || parts[0] === '') return parts[0] === 'about' ? 'about' : '';
  const v = parts[0] === 'settings' ? 'prefs' : parts[0];
  if (VIEWS[v] && v !== 'share') { S.view = v; return 'view' }
@@ -136,13 +137,9 @@ $('#fileIn').addEventListener('change', e => { ingest(e.target.files); e.target.
 $('#dirIn').addEventListener('change', e => { ingest(e.target.files); e.target.value = '' });
 $('#camIn').addEventListener('change', e => { const f = [...e.target.files]; e.target.value = ''; if (f.length) addImagePages(f) });
 $('#imgIn').addEventListener('change', e => { const f = [...e.target.files]; e.target.value = ''; if (f.length) addImagePages(f) });
-$('#hidIn').addEventListener('change', async e => {
- const list = [...e.target.files]; e.target.value = ''; if (!S.hiddenDK) return;
- const need = list.reduce((a, f) => a + f.size, 0), room = await storageRoom();
- if (room && need > room.free * .97) { modal(`<h3>Not enough space for Hidden</h3><div class="spnums"><div><b>${fmtB(need)}</b><span>Adding</span></div><div><b>${fmtB(room.free)}</b><span>Free</span></div><div class="bad"><b>${fmtB(need - room.free)}</b><span>Too much</span></div></div>${spaceBar(room, need)}<div class="row end" style="margin-top:14px"><button class="btn pri" data-close>OK</button></div>`, { cls: 'mid' }); return }
- for (const f of list) { const mime = f.type || guessMime(f.name), c = classify(f.name, mime, f.size, { modified: f.lastModified }); await hideBlob(f, { name: f.name, type: mime, size: f.size, cat: c.cat, folder: c.folder, tags: c.tags, added: Date.now(), modified: f.lastModified, thumb: await makeThumb(f, mime), hash: await hashBlob(f) }) }
- toast(`${list.length} item${list.length > 1 ? 's' : ''} added to Hidden`); render();
-});
+$('#hidPhotoIn').addEventListener('change', e => { const l = [...e.target.files]; e.target.value = ''; hideIncoming(l) });
+$('#photoIn').addEventListener('change', e => { const l = [...e.target.files]; e.target.value = ''; ingest(l) });
+$('#hidIn').addEventListener('change', async e => { const l = [...e.target.files]; e.target.value = ''; hideIncoming(l) });
 $('#anyIn').addEventListener('change', async e => {
  const f = e.target.files[0]; const tgt = importTarget; importTarget = null; e.target.value = ''; e.target.removeAttribute('capture'); if (!f) return;
  if (tgt === 'csv') importCSV(f);
@@ -172,7 +169,17 @@ let pickerUntil = 0, lockedOnLeave = false;
 document.addEventListener('click', e => { if (e.target && e.target.type === 'file') pickerUntil = Date.now() + 120000 }, true);
 document.addEventListener('change', e => { if (e.target && e.target.type === 'file') setTimeout(() => { pickerUntil = 0 }, 1500) }, true);
 window.addEventListener('focus', () => { if (pickerUntil) setTimeout(() => { pickerUntil = 0 }, 1500) });
-function lockOnLeave() { if (Date.now() < pickerUntil || (SC && SC.m)) return; if (S.vault || S.hiddenDK) { if (S.vault) lockVault(); if (S.hiddenDK) lockHidden(); lockedOnLeave = true } }
+// Leaving the tab, switching apps or locking the phone: close anything showing Hidden or Vault
+// content, lock both, and (if you were in Hidden or the Vault) go back to Home.
+function lockOnLeave() {
+ if (Date.now() < pickerUntil || (SC && SC.m)) return;
+ const inSecret = S.view === 'hidden' || S.view === 'vault' || (typeof HV !== 'undefined' && HV);
+ if (!(S.vault || S.hiddenDK || inSecret)) return;
+ if (inSecret) { $$('#modal-root .mwrap').forEach(w => w.close()); HS.buf = '' }
+ if (S.vault) lockVault(); if (S.hiddenDK) lockHidden();
+ if (inSecret) { try { history.replaceState(null, '', '#/home') } catch { } go('home') }
+ lockedOnLeave = true;
+}
 document.addEventListener('visibilitychange', () => { if (document.hidden) { hiddenAt = Date.now(); lockOnLeave() } else { if (lockedOnLeave) { lockedOnLeave = false; toast('Vault and Hidden locked while you were away') } } });
 window.addEventListener('pagehide', lockOnLeave);
 function autoLock() { const had = S.vault || S.hiddenDK; if (S.vault) lockVault(); if (S.hiddenDK) lockHidden(); if (had) toast('Locked after inactivity') }
@@ -183,6 +190,7 @@ function handleRoute() {
  const r = routeFromHash();
  if (r === 'share') { $('#landing').hidden = true; $('#onboarding').hidden = true; $('#app').hidden = false; document.body.classList.remove('on-landing'); S.view = 'share'; render(); return }
  if (r === 'join') { const j = S.pendingJoin; S.pendingJoin = null; if (!S.profile) return welcome(j); try { history.replaceState(null, '', '#/devices') } catch { } showApp(); go('devices'); joinFlow(j); return }
+ if (r === 'shared') { try { history.replaceState(null, '', '#/files') } catch { } if (!S.profile) return welcome(); S.view = 'files'; S.folder = 'All'; showApp(); takeShared(); return }
  if (r === 'about') return showLanding();
  if (!S.profile) return showLanding();
  if (r === 'view') { if ($('#app').hidden) showApp(); else render() }
@@ -198,6 +206,17 @@ async function autoEmptyTrash() {
  const d = setting('autoEmptyDays'); if (!d) return;
  const old = S.files.filter(f => f.trashed && Date.now() - f.trashed > d * 864e5).map(f => f.id);
  if (old.length) await purgeFiles(old, true);
+}
+// Files shared into DESk from other apps (Android share sheet) wait in a cache until DESk opens
+async function takeShared() {
+ if (!('caches' in window)) return;
+ try {
+  const c = await caches.open('desk-share'), keys = await c.keys(); if (!keys.length) return;
+  const files = [];
+  for (const k of keys) { const r = await c.match(k); if (!r) continue; const b = await r.blob(); files.push(new File([b], decodeURIComponent(r.headers.get('x-name') || 'shared-file'), { type: r.headers.get('content-type') || b.type, lastModified: +r.headers.get('x-mod') || Date.now() })) }
+  for (const k of keys) await c.delete(k);
+  if (files.length) { toast(`Received ${files.length} shared item${files.length > 1 ? 's' : ''}`); ingest(files) }
+ } catch (e) { console.warn('share-in', e) }
 }
 let installEvt = null;
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -240,7 +259,8 @@ async function init() {
  autoEmptyTrash(); setTimeout(() => autoCopy().catch(() => { }), 3000);
  if (S.profile) await restoreSync();
  const r = routeFromHash();
- if (r === 'share' || r === 'join' || r === 'about') handleRoute();
+ if (r === 'share' || r === 'join' || r === 'about' || r === 'shared') handleRoute();
+ else if (S.profile) setTimeout(takeShared, 800);
  else if (!S.profile) showLanding();
  else showApp();
  if ('serviceWorker' in navigator && ONLINE_APP()) {

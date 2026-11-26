@@ -273,9 +273,8 @@ async function setupHidden(kind, secret) {
 }
 async function openHidden(raw) {
  S.hiddenRaw = raw; S.hiddenDK = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
- const recs = await dbAll('hidden'); S.hiddenItems = [];
- for (const r of recs) { try { S.hiddenItems.push({ id: r.id, size: r.size, at: r.at, meta: await decJSON(S.hiddenDK, r.m) }) } catch { } }
- if (HS.pending) { const ids = HS.pending; HS.pending = null; await hideFiles(ids) }
+ await reloadHiddenList();
+ if (HS.pending) { const ids = HS.pending; HS.pending = null; hideFiles(ids) }
 }
 async function unlockHidden(secret) {
  const c = await hiddenCfg(), kek = await deriveKey(secret, unb64(c.salt), c.iter);
@@ -283,31 +282,109 @@ async function unlockHidden(secret) {
  await openHidden(raw);
 }
 function lockHidden() { S.hiddenDK = null; S.hiddenRaw = null; S.hiddenItems = null; HS.buf = ''; if (S.view === 'hidden') render() }
-async function hideBlob(blob, meta) {
- const id = uid(), m = await encJSON(S.hiddenDK, meta), b = await aesEnc(S.hiddenDK, await blob.arrayBuffer());
- await dbPut('hidden', id, { id, m, b: { iv: b.iv, ct: b.ct }, size: blob.size, at: Date.now() });
- S.hiddenItems.push({ id, size: blob.size, at: Date.now(), meta });
-}
-async function hideFiles(ids) {
- const cfg = await hiddenCfg();
- if (!cfg || !S.hiddenDK) { HS.pending = ids; toast(cfg ? 'Unlock Hidden to move these files' : 'Set up a PIN or password for Hidden first'); go('hidden'); return }
- let n = 0;
- for (const id of ids) {
-  const f = byId(id); if (!f) continue;
-  const blob = await getBlob(f); if (!blob) { toast(f.name + ' isn’t on this device', 'err'); continue }
-  await hideBlob(blob, { name: f.name, type: f.type, size: f.size, cat: f.cat, folder: f.folder, tags: f.tags, added: f.added, modified: f.modified, thumb: f.thumb, hash: f.hash, scanId: f.scanId });
-  if (typeof tombstone === 'function') await tombstone(id);
-  await dbDel('blobs', id); await dbDel('files', id); S.files = S.files.filter(x => x.id !== id); n++;
+// Big files (long videos from a phone's Hidden album, etc.) are encrypted in 8 MB pieces so they never
+// have to fit in memory at once; each piece has its own random IV.
+const HCHUNK = 8 * 1048576;
+async function hideBlob(blob, meta, onProg) {
+ // keep the key for the whole move, so locking (e.g. leaving the app) mid-way doesn't drop files
+ const dk = S.hiddenDK || HS.moveDK; if (!dk) throw new Error('Hidden is locked');
+ const id = uid(), m = await encJSON(dk, meta);
+ if (blob.size <= 32 * 1048576) {
+  const b = await aesEnc(dk, await blob.arrayBuffer());
+  await dbPut('hidden', id, { id, m, b: { iv: b.iv, ct: b.ct }, size: blob.size, at: Date.now() }); onProg && onProg(blob.size);
+ } else {
+  const n = Math.ceil(blob.size / HCHUNK), ivs = [];
+  try { for (let i = 0; i < n; i++) { const part = await blob.slice(i * HCHUNK, (i + 1) * HCHUNK).arrayBuffer(), e = await aesEnc(dk, part); ivs.push(b64(e.iv)); await dbPut('blobs', `h:${id}:${i}`, new Blob([e.ct])); onProg && onProg(part.byteLength) } }
+  catch (err) { for (let i = 0; i < n; i++) await dbDel('blobs', `h:${id}:${i}`).catch(() => { }); throw err }
+  await dbPut('hidden', id, { id, m, chunks: ivs, size: blob.size, at: Date.now() });
  }
- S.sel.clear(); if (n) toast(`${n} item${n > 1 ? 's' : ''} moved to Hidden and encrypted`); render();
+ S.hiddenItems && S.hiddenItems.push({ id, size: blob.size, at: Date.now(), meta });
 }
-async function hiddenBlob(id) { const r = await dbGet('hidden', id), it = S.hiddenItems.find(x => x.id === id); return new Blob([await aesDec(S.hiddenDK, r.b.iv, r.b.ct)], { type: it.meta.type || '' }) }
+async function deleteHidden(id) { const r = await dbGet('hidden', id); if (r && r.chunks) for (let i = 0; i < r.chunks.length; i++) await dbDel('blobs', `h:${id}:${i}`).catch(() => { }); await dbDel('hidden', id) }
+// Add files straight into Hidden (from Photos — including an iPhone's Hidden album — or any files)
+async function hideIncoming(list) {
+ if (!S.hiddenDK || !list.length) return;
+ HS.moveDK = S.hiddenDK; HS.moving = (HS.moving || 0) + 1;
+ try { return await hideIncomingNow(list) } finally { if (!--HS.moving) HS.moveDK = null }
+}
+async function hideIncomingNow(list) {
+ const need = list.reduce((a, f) => a + f.size, 0), room = await storageRoom();
+ if (room && need > room.free * .97) { modal(`<h3>Not enough space for Hidden</h3><div class="spnums"><div><b>${fmtB(need)}</b><span>Adding</span></div><div><b>${fmtB(room.free)}</b><span>Free</span></div><div class="bad"><b>${fmtB(need - room.free)}</b><span>Too much</span></div></div>${spaceBar(room, need)}<div class="row end" style="margin-top:14px"><button class="btn pri" data-close>OK</button></div>`, { cls: 'mid' }); return }
+ ingesting = true; const q = upPanel(list.length, need); let n = 0, failed = 0;
+ for (const f of list) {
+  if (q.cancelled) break;
+  try {
+   const mime = f.type || guessMime(f.name), c = classify(f.name, mime, f.size, { modified: f.lastModified });
+   const thumb = thumbable(mime, f.size) ? await fastThumb(f, mime).catch(() => null) : null;
+   await hideBlob(f, { name: f.name, type: mime, size: f.size, cat: c.cat, folder: c.folder, tags: c.tags, added: Date.now(), modified: f.lastModified, thumb, hash: await hashBlob(f) });
+   n++;
+  } catch (e) { failed++; if (isQuota(e)) { toast('Storage is full — some items weren’t added', 'err'); break } }
+  q.progress(f.size, f.name);
+ }
+ ingesting = false;
+ q.done(`${n} item${n === 1 ? '' : 's'} added to Hidden`, ['Encrypted on this device' + (failed ? ` · ${failed} failed` : ''), 'never synced'].join(' · ')); render();
+}
+function hiddenPhotosHelp() {
+ const ios = typeof isIOS === 'function' && isIOS(), android = /Android/.test(navigator.userAgent);
+ infoModal('Add from your Photos — including the Hidden album', `${ios || !android ? `<h4>iPhone & iPad</h4><ol class="steps" style="margin-top:6px"><li>Open <b>Settings › Apps › Photos</b> and turn on <b>Show Hidden Album</b>.</li><li>In DESk tap <b>From Photos</b>, then <b>Collections</b> (or <b>Albums</b>) › <b>Hidden</b>.</li><li>Unlock with <b>Face ID / Touch ID</b>, select the photos and videos, and tap <b>Add</b>.</li></ol><p class="small" style="margin-top:8px">Tip: in the picker tap <b>Options</b> and choose <b>Current</b>/<b>Actual size</b> to keep the original quality.</p>` : ''}
+  ${android || !ios ? `<h4>Android</h4><p>Pick from your gallery or Files. Google Photos’ <b>Locked Folder</b> is blocked by Android for every app, so move items out of it first. If DESk is installed, you can also use <b>Share › DESk</b> from your gallery.</p>` : ''}
+  <h4>What happens</h4><p>Items added here are encrypted on this device and never synced. Removing them from your phone’s album afterwards is up to you — DESk can’t change your photo library.</p>`);
+}
+// Moves run one after another (never two at once), every file is handled on its own, and the original
+// is only removed after its encrypted copy is confirmed saved — so a selection of 3 always moves all 3.
+let hideChain = Promise.resolve();
+function hideFiles(ids) { const run = hideChain.then(() => hideFilesNow(ids)); hideChain = run.catch(() => { }); return run }
+async function hideFilesNow(ids) {
+ if (!S.hiddenDK) return hideFilesInner(ids);
+ HS.moveDK = S.hiddenDK; HS.moving = (HS.moving || 0) + 1;
+ try { return await hideFilesInner(ids) } finally { if (!--HS.moving) HS.moveDK = null }
+}
+async function hideFilesInner(ids) {
+ ids = [...new Set(ids)];
+ const cfg = await hiddenCfg();
+ if (!cfg || !S.hiddenDK) { HS.pending = [...new Set([...(HS.pending || []), ...ids])]; toast(cfg ? 'Unlock Hidden to move these files' : 'Set up a PIN or password for Hidden first'); go('hidden'); return }
+ const total = ids.map(byId).filter(Boolean).reduce((a, f) => a + f.size, 0);
+ const q = ids.length > 1 || total > 32 * 1048576 ? upPanel(ids.length, total) : null;
+ let n = 0; const fails = [];
+ for (const id of ids) {
+  const f = byId(id); if (!f) { fails.push(['(removed)', 'no longer in DESk']); continue }
+  if (q && q.cancelled) { fails.push([f.name, 'cancelled']); continue }
+  try {
+   if (f.offloaded) toast(`Getting ${f.name} from ${whereIs(f)}…`);
+   const blob = await getBlob(f, { wait: true }); if (!blob) throw new Error('not on this device yet');
+   const before = new Set(S.hiddenItems.map(x => x.id));
+   await hideBlob(blob, { name: f.name, type: f.type, size: f.size, cat: f.cat, folder: f.folder, tags: f.tags, added: f.added, modified: f.modified, thumb: f.thumb, hash: f.hash, scanId: f.scanId });
+   const added = S.hiddenItems.find(x => !before.has(x.id));
+   if (!added || !(await dbGet('hidden', added.id))) throw new Error('couldn’t be saved');
+   if (typeof tombstone === 'function') await tombstone(id);
+   await dbDel('blobs', id); await dbDel('files', id); S.files = S.files.filter(x => x.id !== id); n++;
+  } catch (e) { console.warn('hide', e); fails.push([f.name, isQuota(e) ? 'storage is full' : (e.message || 'failed')]); if (isQuota(e)) break }
+  q && q.progress(f.size, f.name);
+ }
+ await reloadHiddenList();
+ S.sel.clear(); S.selMode = false;
+ if (q) q.done(`Moved ${n} of ${ids.length} to Hidden`, fails.length ? fails.map(x => `${x[0]}: ${x[1]}`).join(' · ') : 'Encrypted on this device · never synced');
+ if (!fails.length) toast(`${n} item${n === 1 ? '' : 's'} moved to Hidden and encrypted`);
+ else toast(`${n} of ${ids.length} moved — ${fails.length} couldn’t be: ${fails[0][0]} (${fails[0][1]})`, 'err');
+ render();
+}
+async function reloadHiddenList() {
+ if (!S.hiddenDK) return;
+ const recs = await dbAll('hidden'), out = [];
+ for (const r of recs) { try { out.push({ id: r.id, size: r.size, at: r.at, meta: await decJSON(S.hiddenDK, r.m) }) } catch { } }
+ S.hiddenItems = out;
+}
+async function hiddenBlob(id) {
+ const r = await dbGet('hidden', id), it = S.hiddenItems.find(x => x.id === id), type = it.meta.type || '';
+ if (r.chunks) { const parts = []; for (let i = 0; i < r.chunks.length; i++) { const c = await dbGet('blobs', `h:${id}:${i}`); parts.push(await aesDec(S.hiddenDK, unb64(r.chunks[i]), await c.arrayBuffer())) } return new Blob(parts, { type }) }
+ return new Blob([await aesDec(S.hiddenDK, r.b.iv, r.b.ct)], { type });
+}
 async function unhide(id) {
  const it = S.hiddenItems.find(x => x.id === id); if (!it) return;
  const blob = await hiddenBlob(id), mt = it.meta;
  const rec = await addFile(blob, { name: mt.name, type: mt.type, modified: mt.modified, thumb: mt.thumb, hash: mt.hash, scan: mt.scanId });
  if (mt.folder) rec.folder = mt.folder; if (mt.tags) rec.tags = mt.tags; await saveRec(rec);
- await dbDel('hidden', id); S.hiddenItems = S.hiddenItems.filter(x => x.id !== id);
+ await deleteHidden(id); S.hiddenItems = S.hiddenItems.filter(x => x.id !== id);
  toast(`Restored to ${rec.folder}`); render(); syncSoon();
 }
 function pinPad() { return `<div class="pins">${Array.from({ length: Math.max(4, HS.buf.length) }, (_, i) => `<i class="${i < HS.buf.length ? 'f' : ''}"></i>`).join('')}</div>
@@ -331,19 +408,24 @@ VIEWS.hidden = () => {
  }
  const items = S.hiddenItems.slice().sort((a, b) => b.at - a.at);
  return `<div class="sect" style="margin-top:6px"><div><h1>Hidden</h1><p class="muted">${items.length} encrypted item${items.length === 1 ? '' : 's'} · ${fmtB(items.reduce((a, b) => a + b.size, 0))}</p></div>
-  <div class="row"><button class="btn" data-act="hChange">${ic('key', 18)}<span class="hide-s">Change ${cfg.kind === 'pin' ? 'PIN' : 'password'}</span></button><button class="btn" data-act="hLock">${ic('lock', 18)}Lock</button><button class="btn pri" data-act="hAdd">${ic('plus', 18)}Add files</button></div></div>
+  <div class="row"><button class="btn" data-act="hChange">${ic('key', 18)}<span class="hide-s">Change ${cfg.kind === 'pin' ? 'PIN' : 'password'}</span></button><button class="btn" data-act="hLock">${ic('lock', 18)}Lock</button><button class="btn" data-act="hAdd">${ic('plus', 18)}Add files</button><button class="btn pri" data-act="hAddPhotos">${ic('image', 18)}From Photos</button></div></div>
+  <button class="card hphotos" data-act="hPhotosHelp"><span class="ib">${ic('image', 20)}</span><span class="grow"><b>Moving photos from your phone’s Hidden album?</b><span class="small muted">iPhone’s picker can show the Hidden album after Face ID — here’s how</span></span>${ic('chev', 18)}</button>
   <div class="card" style="margin-bottom:16px;display:flex;gap:12px;align-items:center"><span style="color:var(--blue2)">${ic('shield', 22)}</span><p class="small muted grow">Hidden files never sync or appear in search. Locks after ${setting('lockMin')} min idle. ${setting('stealth') ? 'Stealth mode is on: open Hidden by tapping the DESk logo 5 times.' : 'Tip: turn on stealth mode in Settings to remove Hidden from the menu.'}</p></div>
   ${items.length ? `<div class="fgrid">${items.map(it => { const f = { ...it.meta, thumb: it.meta.thumb }; return `<div class="fc" data-act="hOpen" data-id="${it.id}" role="button" tabindex="0"><div class="th">${thumbHTML(f, 40)}</div><div class="meta"><div class="nm">${esc(it.meta.name)}</div><div class="sub">${fmtB(it.size)} · hidden ${fmtD(it.at)}</div></div></div>` }).join('')}</div>`
    : `<div class="card empty">${ic('eyeoff', 44)}<h3>Nothing hidden yet</h3><p>Add files here directly, or pick files in the file manager and choose Hide.</p></div>`}`;
 };
 async function pinEnter() {
+ if (HS.busy) return; HS.busy = true;
+ try { await pinEnterNow() } finally { HS.busy = false }
+}
+async function pinEnterNow() {
  const p = HS.buf, err = $('#hErr');
  if (HS.stage === 'unlock') {
   if (Date.now() < HS.until) { err && (err.textContent = `Too many attempts — wait ${Math.ceil((HS.until - Date.now()) / 1000)} s`); HS.buf = ''; return }
-  try { await unlockHidden(p); HS.fail = 0; HS.buf = ''; render() }
+  try { await unlockHidden(p); HS.fail = 0; HS.buf = ''; render(); window.scrollTo(0, 0) }
   catch { HS.fail++; if (HS.fail >= 5) HS.until = Date.now() + 30000 * 2 ** (HS.fail - 5); HS.buf = ''; render(); const e2 = $('#hErr'); e2 && (e2.textContent = 'Wrong PIN' + (HS.fail >= 3 ? ` · ${HS.fail} attempts` : '')) }
  } else if (HS.stage === 'set1') { if (p.length < 4) return toast('Use at least 4 digits', 'err'); HS.first = p; HS.buf = ''; HS.stage = 'set2'; render() }
- else if (HS.stage === 'set2') { if (p !== HS.first) { toast('PINs don’t match — start again', 'err'); HS.stage = 'set1'; HS.buf = ''; return render() } HS.buf = ''; await setupHidden('pin', p); HS.stage = ''; toast('Hidden folder ready'); render() }
+ else if (HS.stage === 'set2') { if (p !== HS.first) { toast('PINs don’t match — start again', 'err'); HS.stage = 'set1'; HS.buf = ''; return render() } HS.buf = ''; await setupHidden('pin', p); HS.stage = ''; toast('Hidden folder ready'); render(); window.scrollTo(0, 0) }
  else if (HS.stage === 'change1') { if (p.length < 4) return toast('Use at least 4 digits', 'err'); HS.first = p; HS.buf = ''; HS.stage = 'change2'; drawChangePad() }
  else if (HS.stage === 'change2') { if (p !== HS.first) { toast('PINs don’t match', 'err'); HS.stage = 'change1'; HS.buf = ''; return drawChangePad() } await rewrapHidden('pin', p); topModal() && topModal().close(); HS.stage = ''; HS.buf = ''; toast('PIN changed') }
 }
@@ -353,20 +435,35 @@ async function rewrapHidden(kind, secret) {
  await kvSet('hiddenCfg', cfg); S.hiddenCfgCache = cfg;
 }
 function drawChangePad() { const m = topModal(); if (!m || !m.querySelector('#chPad')) return; m.querySelector('#chT').textContent = HS.stage === 'change2' ? 'Confirm new PIN' : 'Choose a new 4–8 digit PIN'; m.querySelector('#chPad').innerHTML = pinPad() }
+let HV = null;
 function hiddenItemModal(id) {
- const it = S.hiddenItems.find(x => x.id === id); if (!it) return; let url = null;
- const m = modal(`<div class="mhead"><h3>${esc(it.meta.name)}</h3><button class="btn icon ghost" data-close aria-label="Close">${ic('x')}</button></div><div class="pvm" id="hpv"><span class="muted">Decrypting…</span></div>
-  <div class="row" style="margin-top:14px"><button class="btn" data-act="hUnhide" data-id="${id}">${ic('eye', 18)}Unhide</button><button class="btn" data-act="hDl" data-id="${id}">${ic('download', 18)}Download</button><span class="grow"></span><button class="btn danger" data-act="hDel" data-id="${id}">${ic('trash', 18)}Delete</button></div>`, { cls: 'mid', onClose: () => url && URL.revokeObjectURL(url) });
- hiddenBlob(id).then(async b => {
-  const box = m.querySelector('#hpv'), t = it.meta.type || ''; url = URL.createObjectURL(b);
-  if (t.startsWith('image/')) { box.innerHTML = ''; const im = new Image(); im.src = url; im.alt = ''; box.appendChild(im) }
-  else if (t.startsWith('video/')) { box.innerHTML = ''; const v = document.createElement('video'); v.controls = true; v.src = url; box.appendChild(v) }
-  else if (t.startsWith('audio/')) { box.innerHTML = ''; const a = document.createElement('audio'); a.controls = true; a.src = url; box.appendChild(a) }
-  else if (TEXTY.test(t) && b.size < 2e6) { box.innerHTML = '<pre></pre>'; box.firstChild.textContent = await b.text() }
-  else box.innerHTML = `<div class="empty">${ic('file', 44)}<h3>${fmtB(b.size)}</h3><p>Download or unhide to open this file.</p></div>`;
- }).catch(() => m.querySelector('#hpv').innerHTML = '<p class="muted">Couldn’t decrypt this item.</p>');
+ const it = S.hiddenItems.find(x => x.id === id); if (!it) return;
+ if (HV && HV.m.isConnected) return loadHidden(id);
+ const m = modal(`<div class="mhead"><h3 id="hvT"></h3><span class="pvcount" id="hvC"></span><button class="btn icon ghost" data-close aria-label="Close">${ic('x')}</button></div>
+  <div class="pvwrap" id="hvw"><div class="pvm" id="hpv"></div><button class="pvnav l" data-act="hvPrev" aria-label="Previous">${ic('back', 22)}</button><button class="pvnav r" data-act="hvNext" aria-label="Next">${ic('chev', 22)}</button></div>
+  <div class="pvbtns" id="hvB"></div>`, { cls: 'mid pvmodal hidmodal', onClose: () => { if (HV && HV.url) URL.revokeObjectURL(HV.url); HV = null } });
+ HV = { m, id, url: null, tok: 0 };
+ swipeNav(m.querySelector('#hvw'), d => hvStep(d));
+ loadHidden(id);
+}
+function hvStep(d) { if (!HV) return; const L = S.hiddenItems.map(x => x.id), i = L.indexOf(HV.id); if (i < 0 || L.length < 2) return; const box = HV.m.querySelector('#hpv'); box.classList.remove('slide-l', 'slide-r'); void box.offsetWidth; box.classList.add(d > 0 ? 'slide-l' : 'slide-r'); loadHidden(L[(i + d + L.length) % L.length]) }
+async function loadHidden(id) {
+ const it = S.hiddenItems.find(x => x.id === id); if (!it || !HV) return;
+ const tok = ++HV.tok; HV.id = id; if (HV.url) { URL.revokeObjectURL(HV.url); HV.url = null }
+ const m = HV.m, L = S.hiddenItems.map(x => x.id), i = L.indexOf(id), many = L.length > 1;
+ m.querySelector('#hvT').textContent = it.meta.name;
+ m.querySelector('#hvC').textContent = many ? `${i + 1} / ${L.length}` : '';
+ m.querySelectorAll('.pvnav').forEach(b => b.hidden = !many);
+ m.querySelector('#hvB').innerHTML = `<button class="btn" data-act="hUnhide" data-id="${id}">${ic('eye', 18)}<span>Unhide</span></button><button class="btn" data-act="hDl" data-id="${id}">${ic('download', 18)}<span>Download</span></button><button class="btn danger" data-act="hDel" data-id="${id}">${ic('trash', 18)}<span>Delete</span></button>`;
+ const box = m.querySelector('#hpv'); box.innerHTML = '<span class="muted">Decrypting…</span>';
+ try {
+  const b = await hiddenBlob(id); if (!HV || HV.tok !== tok) return;
+  HV.url = URL.createObjectURL(b);
+  await renderMedia(box, b, HV.url, it.meta.name, it.meta.type || '', (classify(it.meta.name, it.meta.type || '') || {}).cat || 'Other');
+ } catch (e) { if (HV && HV.tok === tok) box.innerHTML = '<p class="muted">Couldn’t decrypt this item.</p>' }
 }
 Object.assign(ACT, {
+ hvPrev: () => hvStep(-1), hvNext: () => hvStep(1),
  hKind: d => { HS.kind = d.k; HS.buf = ''; HS.stage = 'set1'; render() },
  pin: d => {
   if (d.k === 'del') HS.buf = HS.buf.slice(0, -1); else if (d.k === 'ok') return pinEnter(); else if (HS.buf.length < 8) HS.buf += d.k;
@@ -376,10 +473,12 @@ Object.assign(ACT, {
  },
  hLock: () => lockHidden(),
  hAdd: () => $('#hidIn').click(),
+ hAddPhotos: () => $('#hidPhotoIn').click(),
+ hPhotosHelp: () => hiddenPhotosHelp(),
  hOpen: d => hiddenItemModal(d.id),
  hUnhide: async d => { topModal().close(); await unhide(d.id) },
  hDl: async d => { const it = S.hiddenItems.find(x => x.id === d.id); saveBlob(await hiddenBlob(d.id), it.meta.name) },
- hDel: async d => { if (!await ask('Delete permanently?', { body: 'This hidden file will be destroyed.', ok: 'Delete', danger: true })) return; await dbDel('hidden', d.id); S.hiddenItems = S.hiddenItems.filter(x => x.id !== d.id); $$('#modal-root .mwrap').forEach(w => w.close()); render() },
+ hDel: async d => { if (!await ask('Delete permanently?', { body: 'This hidden file will be destroyed.', ok: 'Delete', danger: true })) return; await deleteHidden(d.id); S.hiddenItems = S.hiddenItems.filter(x => x.id !== d.id); $$('#modal-root .mwrap').forEach(w => w.close()); render() },
  hChange: () => {
   const cfg = S.hiddenCfgCache;
   if (cfg.kind === 'pin') { HS.stage = 'change1'; HS.buf = ''; modal(`<h3 id="chT" style="text-align:center">Choose a new 4–8 digit PIN</h3><div id="chPad" style="display:grid;gap:16px">${pinPad()}</div><div class="row" style="margin-top:18px;justify-content:center"><button class="btn sm" data-act="hSwitchPass">Use a password instead</button><button class="btn ghost" data-close>Cancel</button></div>`, { onClose: () => { HS.stage = ''; HS.buf = '' } }) }
@@ -388,7 +487,7 @@ Object.assign(ACT, {
  hSwitchPass: () => { const t = topModal(); t && t.close(); modal(`<h3>New Hidden password</h3><form data-form="hChangePass"><label class="fld"><span>Password</span><input type="password" name="a" required minlength="6" autocomplete="new-password"></label><label class="fld"><span>Confirm</span><input type="password" name="b" required autocomplete="new-password"></label><div class="row end"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn pri">Save</button></div></form>`) },
  hForgot: async () => {
   if (await ask('Reset Hidden?', { body: 'Without the PIN or password the encrypted files can’t be opened. Resetting deletes every hidden file on this device.', input: 'Type DELETE to confirm', ok: 'Reset', danger: true }) !== 'DELETE') return;
-  await dbClear('hidden'); await dbDel('kv', 'hiddenCfg'); S.hiddenCfgCache = null; HS.stage = 'set1'; render(); toast('Hidden folder reset');
+  await dbClear('hidden'); for (const k of await dbKeys('blobs')) if (String(k).startsWith('h:')) await dbDel('blobs', k); await dbDel('kv', 'hiddenCfg'); S.hiddenCfgCache = null; HS.stage = 'set1'; render(); toast('Hidden folder reset');
  }
 });
 Object.assign(FORMS, {
