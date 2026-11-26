@@ -138,6 +138,8 @@ $('#camIn').addEventListener('change', e => { const f = [...e.target.files]; e.t
 $('#imgIn').addEventListener('change', e => { const f = [...e.target.files]; e.target.value = ''; if (f.length) addImagePages(f) });
 $('#hidIn').addEventListener('change', async e => {
  const list = [...e.target.files]; e.target.value = ''; if (!S.hiddenDK) return;
+ const need = list.reduce((a, f) => a + f.size, 0), room = await storageRoom();
+ if (room && need > room.free * .97) { modal(`<h3>Not enough space for Hidden</h3><div class="spnums"><div><b>${fmtB(need)}</b><span>Adding</span></div><div><b>${fmtB(room.free)}</b><span>Free</span></div><div class="bad"><b>${fmtB(need - room.free)}</b><span>Too much</span></div></div>${spaceBar(room, need)}<div class="row end" style="margin-top:14px"><button class="btn pri" data-close>OK</button></div>`, { cls: 'mid' }); return }
  for (const f of list) { const mime = f.type || guessMime(f.name), c = classify(f.name, mime, f.size, { modified: f.lastModified }); await hideBlob(f, { name: f.name, type: mime, size: f.size, cat: c.cat, folder: c.folder, tags: c.tags, added: Date.now(), modified: f.lastModified, thumb: await makeThumb(f, mime), hash: await hashBlob(f) }) }
  toast(`${list.length} item${list.length > 1 ? 's' : ''} added to Hidden`); render();
 });

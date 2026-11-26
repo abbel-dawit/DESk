@@ -94,52 +94,170 @@ async function makeThumb(blob, mime) {
 async function miniOf(dataUrl) { if (!dataUrl) return null; try { const im = new Image(); im.src = dataUrl; await im.decode(); const s = 72 / Math.max(im.width, im.height), c = document.createElement('canvas'); c.width = Math.max(1, Math.round(im.width * s)); c.height = Math.max(1, Math.round(im.height * s)); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', .6) } catch { return null } }
 const thumbHTML = (f, size = 34) => { const t = safeThumb(f.thumb); if (t) return `<img src="${t}" alt="" loading="lazy">`; const c = CATS[f.cat] || CATS.Other; return `<span style="color:${c.c}">${ic(c.ic, size)}</span>` };
 
-/* ================= INGEST ================= */
+/* ================= INGEST (fast path) =================
+ • checks free storage first and tells you exactly how much too big an upload is
+ • fingerprints and stores 4 files at a time (big files are sampled, not read in full)
+ • one storage transaction per file; thumbnails are made afterwards in the background
+ • live speed / time left, Cancel, and a clear report if storage fills up part-way */
 async function addFile(blob, o) {
  const name = o.name || blob.name || 'file';
  const mime = o.type || blob.type || guessMime(name);
  const hash = o.hash || await hashBlob(blob);
  const c = classify(name, mime, blob.size, { path: o.path, modified: o.modified, scan: !!o.scan, kind: o.kind });
  const now = Date.now();
- const rec = { id: uid(), name, type: mime, size: blob.size, cat: c.cat, folder: c.folder, tags: c.tags, added: now, modified: o.modified || now, opened: 0, hash, origin: o.origin || 'upload', device: S.deviceId, scanId: o.scan || null, thumb: o.thumb || await makeThumb(blob, mime), trashed: 0, fav: false, mt: now, dirty: false, offloaded: false, sent: 0 };
- rec.mini = await miniOf(rec.thumb);
- await dbPut('blobs', rec.id, blob);
- await saveRec(rec);
+ const rec = { id: uid(), name, type: mime, size: blob.size, cat: c.cat, folder: c.folder, tags: c.tags, added: now, modified: o.modified || now, opened: 0, hash, origin: o.origin || 'upload', device: S.deviceId, scanId: o.scan || null, thumb: o.thumb || null, trashed: 0, fav: false, mt: now, dirty: false, offloaded: false, sent: 0 };
+ if (o.thumb) rec.mini = await miniOf(o.thumb);
+ await dbPutMany([['blobs', rec.id, blob], ['files', rec.id, rec]]);
  S.files.push(rec);
+ if (!rec.thumb && thumbable(mime, blob.size)) queueThumb(rec);
  return rec;
 }
-function upPanel(total) {
- const el = $('#upq');
- el.innerHTML = `<div class="upq"><div class="row between"><b id="upT">Sorting ${total} item${total > 1 ? 's' : ''}…</b><span class="small muted" id="upN">0 / ${total}</span></div><div class="bar" style="margin:10px 0 6px"><i id="upB" style="width:0"></i></div><div class="small muted" id="upF" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div></div>`;
- return {
-  step(i, n) { $('#upN').textContent = `${i} / ${total}`; $('#upB').style.width = (i / total * 100) + '%'; $('#upF').textContent = n },
-  done(title, detail) { $('#upT').textContent = title; $('#upN').textContent = ''; $('#upB').style.width = '100%'; $('#upF').textContent = detail; el.innerHTML += ''; setTimeout(() => { el.innerHTML = '' }, 6000); el.onclick = () => el.innerHTML = '' }
+/* background thumbnails */
+const thumbable = (mime, size) => (mime.startsWith('image/') && !/heic|heif|tiff/.test(mime) && size < 80 * 1048576) || (mime.startsWith('video/') && size < 4e9);
+const TQ = []; let tqRunning = 0;
+function queueThumb(rec) { TQ.push(rec.id); pumpThumbs() }
+function pumpThumbs() {
+ while (tqRunning < 2 && TQ.length) {
+  const id = TQ.shift(); tqRunning++;
+  (async () => {
+   try {
+    const r = byId(id); if (!r || r.thumb) return;
+    const b = await dbGet('blobs', id); if (!b) return;
+    r.thumb = await fastThumb(b, r.type); if (!r.thumb) return;
+    r.mini = await miniOf(r.thumb); await saveRec(r); thumbRender();
+   } catch { } finally { tqRunning--; pumpThumbs() }
+  })();
+ }
+}
+let thumbT = 0; const thumbRender = () => { if (thumbT) return; thumbT = setTimeout(() => { thumbT = 0; if (['files', 'home', 'scan'].includes(S.view) && !document.querySelector('#modal-root .mwrap')) renderSoon() }, 700) };
+async function fastThumb(blob, mime) {
+ if (mime.startsWith('image/') && 'createImageBitmap' in window) {
+  try { const bm = await createImageBitmap(blob, { resizeWidth: 320, resizeQuality: 'medium' }); const c = document.createElement('canvas'); c.width = bm.width; c.height = bm.height; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(bm, 0, 0); bm.close && bm.close(); return c.toDataURL('image/jpeg', .72) } catch { }
+ }
+ return makeThumb(blob, mime);
+}
+/* progress panel */
+function upPanel(total, totalBytes = 0) {
+ const el = $('#upq'), t0 = performance.now(); let cancelled = false, doneB = 0, doneN = 0;
+ el.onclick = null;
+ el.innerHTML = `<div class="upq"><div class="row between" style="flex-wrap:nowrap"><b id="upT">Adding ${total} item${total > 1 ? 's' : ''}…</b><button class="btn sm ghost" id="upX">Cancel</button></div>
+  <div class="bar" style="margin:10px 0 6px"><i id="upB" style="width:0"></i></div>
+  <div class="row between small muted" style="flex-wrap:nowrap;gap:8px"><span id="upN">0 / ${total}</span><span id="upS"></span></div>
+  <div class="small muted" id="upF" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px"></div></div>`;
+ $('#upX').onclick = () => { cancelled = true; $('#upX').textContent = 'Stopping…'; $('#upX').disabled = true };
+ let last = 0;
+ const paint = name => {
+  const now = performance.now(); if (now - last < 120 && doneN < total) return; last = now;
+  const pct = totalBytes ? doneB / totalBytes : doneN / total, secs = (now - t0) / 1000, rate = doneB / Math.max(.2, secs);
+  const B = $('#upB'); if (!B) return; B.style.width = Math.min(100, pct * 100) + '%';
+  $('#upN').textContent = `${doneN} / ${total}${totalBytes ? ` · ${fmtB(doneB)} of ${fmtB(totalBytes)}` : ''}`;
+  if (secs > 1.2 && rate > 0 && totalBytes) { const left = (totalBytes - doneB) / rate; $('#upS').textContent = `${fmtB(rate)}/s · ${left < 60 ? Math.max(1, Math.round(left)) + ' s' : Math.round(left / 60) + ' min'} left` }
+  if (name) $('#upF').textContent = name;
  };
+ return {
+  get cancelled() { return cancelled },
+  step(i, n) { doneN = i; paint(n) },
+  progress(bytes, name) { doneB += bytes; doneN++; paint(name) },
+  done(title, detail) { const X = $('#upX'); if (X) X.remove(); $('#upT').textContent = title; $('#upB').style.width = '100%'; $('#upS').textContent = `${((performance.now() - t0) / 1000).toFixed(1)} s`; $('#upF').textContent = detail; setTimeout(() => { if (!ingesting) el.innerHTML = '' }, 7000); el.onclick = e => { if (!e.target.closest('button')) el.innerHTML = '' } }
+ };
+}
+/* "not enough space" — quantified */
+function spaceBar(room, incoming) {
+ const cap = Math.max(room.quota, room.usage + incoming), w = v => Math.max(.6, v / cap * 100);
+ const over = Math.max(0, room.usage + incoming - room.quota);
+ return `<div class="spbar" aria-hidden="true"><i class="u" style="width:${w(room.usage)}%"></i><i class="n" style="width:${w(Math.min(incoming, room.free))}%"></i>${over ? `<i class="o" style="width:${w(over)}%"></i>` : ''}</div>
+  <div class="splegend small"><span><i class="u"></i>Used ${fmtB(room.usage)}</span><span><i class="n"></i>Free ${fmtB(room.free)}</span>${over ? `<span><i class="o"></i>Doesn’t fit ${fmtB(over)}</span>` : ''}</div>`;
+}
+function fitPlan(files, free) { let used = 0; const fit = []; for (const f of files) if (used + f.size <= free) { fit.push(f); used += f.size } return { fit, used } }
+function spaceDialog(files, room, totalBytes) {
+ const over = totalBytes - room.free, plan = fitPlan(files, room.free * .97), big = files.reduce((a, f) => f.size > a.size ? f : a, files[0]);
+ return new Promise(res => {
+  const m = modal(`<div class="mhead"><span class="ib" style="width:44px;height:44px;border-radius:12px;background:var(--rsoft);color:var(--red);display:grid;place-items:center">${ic('hdd', 22)}</span><h3>Not enough space on this device</h3><button class="btn icon ghost" data-close aria-label="Close">${ic('x')}</button></div>
+   <div class="spnums"><div><b>${fmtB(totalBytes)}</b><span>You’re adding (${files.length} item${files.length > 1 ? 's' : ''})</span></div><div><b>${fmtB(room.free)}</b><span>Free for DESk here</span></div><div class="bad"><b>${fmtB(over)}</b><span>Too much — ${Math.round(over / totalBytes * 100)}% won’t fit</span></div></div>
+   ${spaceBar(room, totalBytes)}
+   ${big.size > room.free ? `<p class="small" style="color:var(--red);margin-top:10px">${ic('warn', 14, 'style="display:inline;vertical-align:-2px"')} The largest item, <b>${esc(big.name)}</b> (${fmtB(big.size)}), is bigger than all your free space by ${fmtB(big.size - room.free)}.</p>` : ''}
+   <p class="small muted" style="margin:10px 0 14px">Your browser lets DESk use part of your device’s free space. Freeing space on the device (or in DESk) raises this limit. Duplicates you already have don’t take extra space.</p>
+   <div style="display:grid;gap:8px">
+    ${plan.fit.length ? `<button class="btn pri wrap" data-act="spPick" data-v="fit"><span><b>Add what fits — ${plan.fit.length} of ${files.length} items (${fmtB(plan.used)})</b><br><span class="small" style="opacity:.85">${files.length - plan.fit.length} item${files.length - plan.fit.length === 1 ? '' : 's'} (${fmtB(totalBytes - plan.used)}) will be left out</span></span></button>` : ''}
+    ${typeof fsaOK === 'function' && (fsaOK() || DR.list.length) ? `<button class="btn wrap" data-act="spPick" data-v="drive">${ic('hdd', 18)}<span><b>Save them to an SD card or USB drive instead</b></span></button>` : ''}
+    <button class="btn wrap" data-act="spPick" data-v="clean">${ic('broom', 18)}<span><b>Free up space in DESk first</b><br><span class="small muted">Duplicates, large and old files</span></span></button>
+    <button class="btn wrap" data-act="spPick" data-v="all">${ic('upload', 18)}<span><b>Try adding everything anyway</b><br><span class="small muted">DESk stops cleanly when space runs out</span></span></button>
+   </div>`, { cls: 'mid', onClose: () => res(m._v || 'cancel') });
+  m._plan = plan;
+ });
+}
+ACT.spPick = (d, el) => { const w = el.closest('.mwrap'); w._v = d.v; w.close() };
+async function rawToDrive(files) {
+ const d = await pickDrive('Save to which drive?'); if (!d || !await drivePerm(d)) return;
+ const total = files.reduce((a, f) => a + f.size, 0), q = upPanel(files.length, total); let n = 0;
+ for (const f of files) { if (q.cancelled) break; try { await writeFile(d.handle, 'DESk/Incoming/' + (f.webkitRelativePath || f.name), f); n++ } catch (e) { if (/NotFound|NotReadable/.test(e.name)) { toast(`${d.name} was disconnected`, 'err'); break } if (e.name === 'QuotaExceededError') { toast(`${d.name} is full`, 'err'); break } } q.progress(f.size, f.name) }
+ q.done(`Saved ${n} item${n === 1 ? '' : 's'} to ${d.name}`, 'In the DESk/Incoming folder on the drive');
 }
 let ingesting = false;
 async function ingest(list, opts = {}) {
- const files = [...list].filter(f => f && f.name !== '.DS_Store' && f.name !== 'Thumbs.db' && f.name !== 'desktop.ini');
+ let files = [...list].filter(f => f && f.name !== '.DS_Store' && f.name !== 'Thumbs.db' && f.name !== 'desktop.ini');
  if (!files.length) return [];
- ingesting = true;
- const q = upPanel(files.length); let dupes = 0, failed = 0; const added = [], cats = {};
- const known = new Map(live().map(f => [f.hash, f]));
- for (let i = 0; i < files.length; i++) {
-  const f = files[i]; q.step(i, f.webkitRelativePath || f.name);
-  try {
-   const hash = await hashBlob(f);
-   if (setting('skipDupes') && known.has(hash) && !opts.force) { dupes++; continue }
-   const rec = await addFile(f, { name: f.name, hash, path: f.webkitRelativePath || '', modified: f.lastModified });
-   known.set(hash, rec); added.push(rec); cats[rec.cat] = (cats[rec.cat] || 0) + 1;
-  } catch (e) { console.error(e); failed++ }
-  if (i % 8 === 7) renderSoon();
+ let totalBytes = files.reduce((a, f) => a + f.size, 0);
+ const room = await storageRoom();
+ if (room && totalBytes > room.free * .97) {
+  const v = await spaceDialog(files, room, totalBytes);
+  if (v === 'cancel') return [];
+  if (v === 'clean') { go('clean'); toast(`Free up at least ${fmtB(totalBytes - room.free)} and try again`); return [] }
+  if (v === 'drive') { rawToDrive(files); return [] }
+  if (v === 'fit') { files = fitPlan(files, room.free * .97).fit; totalBytes = files.reduce((a, f) => a + f.size, 0) }
  }
+ if (totalBytes > 200 * 1048576 && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
+ ingesting = true;
+ const q = upPanel(files.length, totalBytes); let dupes = 0, failed = 0, full = false; const added = [], cats = {}, leftOut = [];
+ const known = new Map(), bySize = new Map();
+ live().forEach(f => { if (f.hash) known.set(f.hash, f); if (!bySize.has(f.size)) bySize.set(f.size, []); bySize.get(f.size).push(f) });
+ let next = 0, lastRender = 0;
+ const isDupe = async (f, hash) => {
+  if (known.has(hash)) return true;
+  for (const o of bySize.get(f.size) || []) { if (hashScheme(o.hash) !== hashScheme(hash)) { const h2 = await hashLike(f, o.hash); if (h2 && h2 === o.hash) return true } }
+  return false;
+ };
+ const worker = async () => {
+  for (; ;) {
+   if (full || q.cancelled) return;
+   const i = next++; if (i >= files.length) return;
+   const f = files[i];
+   try {
+    const hash = await hashBlob(f);
+    if (setting('skipDupes') && !opts.force && await isDupe(f, hash)) { dupes++; q.progress(f.size, f.webkitRelativePath || f.name); continue }
+    known.set(hash, true);
+    const rec = await addFile(f, { name: f.name, hash, path: f.webkitRelativePath || '', modified: f.lastModified });
+    if (!bySize.has(f.size)) bySize.set(f.size, []); bySize.get(f.size).push(rec);
+    added.push(rec); cats[rec.cat] = (cats[rec.cat] || 0) + 1;
+   } catch (e) {
+    if (isQuota(e)) { full = true; leftOut.push(...files.slice(i)); break }
+    console.error(e); failed++;
+   }
+   q.progress(f.size, f.webkitRelativePath || f.name);
+   if (performance.now() - lastRender > 900) { lastRender = performance.now(); renderSoon() }
+  }
+ };
+ await Promise.all(Array.from({ length: Math.min(4, files.length) }, worker));
  ingesting = false;
+ if (q.cancelled && !full) leftOut.push(...files.slice(next));
  const parts = Object.entries(cats).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${v} ${k}`);
- q.done(added.length ? `Sorted ${added.length} item${added.length > 1 ? 's' : ''}` : 'Nothing new added',
-  [parts.join(' · '), dupes ? `${dupes} duplicate${dupes > 1 ? 's' : ''} skipped` : '', failed ? `${failed} failed (device storage may be full)` : ''].filter(Boolean).join(' — '));
+ const roomAfter = await storageRoom();
+ q.done(full ? 'Storage filled up' : q.cancelled ? `Stopped — added ${added.length}` : added.length ? `Sorted ${added.length} item${added.length > 1 ? 's' : ''}` : 'Nothing new added',
+  [parts.join(' · '), dupes ? `${dupes} duplicate${dupes > 1 ? 's' : ''} skipped` : '', failed ? `${failed} failed` : '', roomAfter ? `${fmtB(roomAfter.free)} free` : ''].filter(Boolean).join(' — '));
  render(); syncSoon(); if (typeof autoCopy === 'function') autoCopy();
+ if (full) {
+  const need = leftOut.reduce((a, f) => a + f.size, 0), r2 = roomAfter || { usage: 0, quota: 0, free: 0 };
+  const trusty = roomAfter && roomAfter.free < need; // some browsers over-report free space; then the size left out is the honest figure
+  const more = trusty ? need - r2.free : need;
+  modal(`<div class="mhead"><span class="ib" style="width:44px;height:44px;border-radius:12px;background:var(--rsoft);color:var(--red);display:grid;place-items:center">${ic('hdd', 22)}</span><h3>Storage filled up</h3><button class="btn icon ghost" data-close aria-label="Close">${ic('x')}</button></div>
+   <div class="spnums"><div><b>${added.length}</b><span>Added</span></div><div class="bad"><b>${leftOut.length}</b><span>Not added</span></div><div class="bad"><b>${fmtB(more)}</b><span>More space needed</span></div></div>
+   ${trusty ? spaceBar(r2, need) : `<p class="small muted">This browser reported more free space than it allowed DESk to use.</p>`}
+   <p class="small muted" style="margin:10px 0 14px">${leftOut.length} item${leftOut.length === 1 ? '' : 's'} (${fmtB(need)}) didn’t fit, starting with <b>${esc(leftOut[0].name)}</b>. Free up space, then add them again.</p>
+   <div class="row end"><button class="btn" data-act="spClean">${ic('broom', 18)}Free up space</button><button class="btn pri" data-close>OK</button></div>`, { cls: 'mid' });
+ }
  return added;
 }
+ACT.spClean = () => { topModal().close(); go('clean') };
 async function filesFromDrop(dt) {
  const items = [...(dt.items || [])].filter(i => i.kind === 'file');
  const entries = items.map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);

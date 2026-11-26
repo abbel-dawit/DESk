@@ -1,6 +1,6 @@
 'use strict';
 /* ================= CORE ================= */
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.3.0';
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -125,6 +125,15 @@ const dbDel = (s, k) => tx(s, 'readwrite', st => !st ? MEM[s].delete(k) : st.del
 const dbAll = s => tx(s, 'readonly', st => !st ? [...MEM[s].values()] : st.getAll());
 const dbKeys = s => tx(s, 'readonly', st => !st ? [...MEM[s].keys()] : st.getAllKeys());
 const dbClear = s => tx(s, 'readwrite', st => !st ? MEM[s].clear() : st.clear());
+async function dbPutMany(items) {
+ const d = await idb();
+ if (!d) { items.forEach(([s, k, v]) => MEM[s].set(k, v)); return }
+ return new Promise((res, rej) => { const t = d.transaction([...new Set(items.map(i => i[0]))], 'readwrite'); items.forEach(([s, k, v]) => t.objectStore(s).put(v, k)); t.oncomplete = () => res(); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || new DOMException('Storage is full', 'QuotaExceededError')) });
+}
+async function storageRoom() {
+ try { if (!navigator.storage || !navigator.storage.estimate) return null; const e = await navigator.storage.estimate(); if (!e.quota) return null; return { usage: e.usage || 0, quota: e.quota, free: Math.max(0, e.quota - (e.usage || 0)) } } catch { return null }
+}
+const isQuota = e => e && (e.name === 'QuotaExceededError' || /quota|storage is full|disk/i.test(e.message || ''));
 const kvGet = (k, d = null) => dbGet('kv', k).then(v => v === undefined ? d : v).catch(() => d);
 const kvSet = (k, v) => dbPut('kv', k, v);
 
@@ -138,13 +147,29 @@ const aesDec = (key, iv, ct) => crypto.subtle.decrypt({ name: 'AES-GCM', iv }, k
 async function encJSON(key, obj) { const { iv, ct } = await aesEnc(key, te.encode(JSON.stringify(obj))); return { iv: b64(iv), ct: b64(ct) } }
 async function decJSON(key, o) { return JSON.parse(td.decode(await aesDec(key, unb64(o.iv), unb64(o.ct)))) }
 async function sha256hex(buf) { return [...new Uint8Array(await crypto.subtle.digest('SHA-256', buf))].map(b => b.toString(16).padStart(2, '0')).join('') }
-async function hashBlob(f) {
+// File fingerprints. Small files: full SHA-256. Big files: SHA-256 of samples (start, 6 spread-out
+// slices, end) plus the exact size — reads ~5 MB instead of the whole file, so multi-GB videos fingerprint
+// in milliseconds. Older fingerprints ('q' prefix / full hashes of 16–64 MB files) are still understood.
+const HASH_FULL_MAX = 16 * 1048576;
+async function hashOld(f) {
  const MB = 1048576;
  if (f.size <= 64 * MB) return sha256hex(await f.arrayBuffer());
  const a = new Uint8Array(await f.slice(0, 4 * MB).arrayBuffer()), b = new Uint8Array(await f.slice(f.size - 4 * MB).arrayBuffer());
  const m = new Uint8Array(a.length + b.length + 8); m.set(a); m.set(b, a.length); new DataView(m.buffer).setFloat64(m.length - 8, f.size);
  return 'q' + await sha256hex(m);
 }
+async function hashBlob(f) {
+ if (f.size <= HASH_FULL_MAX) return sha256hex(await f.arrayBuffer());
+ const MB = 1048576, parts = [f.slice(0, 2 * MB)];
+ for (let k = 1; k <= 6; k++) { const at = Math.floor(f.size * k / 7); parts.push(f.slice(at, at + 256 * 1024)) }
+ parts.push(f.slice(f.size - 2 * MB));
+ const buf = new Uint8Array(await new Blob(parts).arrayBuffer()), m = new Uint8Array(buf.length + 8);
+ m.set(buf); new DataView(m.buffer).setFloat64(buf.length, f.size);
+ return 'q2' + await sha256hex(m);
+}
+const hashScheme = h => !h ? 'none' : h.startsWith('q2') ? 'q2' : h.startsWith('q') ? 'q' : 'full';
+// Fingerprint a file the same way an existing fingerprint was made (for duplicate checks & sync verification)
+async function hashLike(f, h) { const s = hashScheme(h); if (s === 'q2') return hashBlob(f); if (s === 'q') return hashOld(f); return f.size <= 512 * 1048576 ? sha256hex(await f.arrayBuffer()) : null }
 
 /* ---------- zip (store) writer & reader ---------- */
 const CRCT = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0 } return t })();

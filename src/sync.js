@@ -335,7 +335,7 @@ async function receiveContent(f, g) {
  const bufs = [];
  for (let i = 1; i <= g.n; i++) bufs.push(await openBytes(SY.keys.key, await fetchBytes(g.parts[i])));
  const blob = new Blob(bufs, { type: f.type || '' });
- if (f.hash && await hashBlob(blob) !== f.hash) throw new Error('Content check failed for ' + f.name);
+ if (f.hash) { const h = await hashLike(blob, f.hash); if (h && h !== f.hash) throw new Error('Content check failed for ' + f.name) }
  await dbPut('blobs', f.id, blob); f.offloaded = false; f.sent = Date.now();
  if (!f.thumb || f.thumb === f.mini) f.thumb = await makeThumb(blob, f.type) || f.thumb;
  await saveRec(f); delete SY.avail[f.id]; delete SY.wantSent[f.id];
